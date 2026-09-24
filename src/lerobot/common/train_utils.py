@@ -24,10 +24,14 @@ its writes live in the same method.
 """
 
 import logging
+import sys
 from importlib.resources import files
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any
+
+if sys.platform == "win32":
+    import _winapi
 
 import torch.distributed as dist
 from huggingface_hub import HfApi, ModelCard, ModelCardData, snapshot_download
@@ -116,8 +120,13 @@ def should_save_checkpoint(step: int, save_freq: int, total_steps: int) -> bool:
 def update_last_checkpoint(checkpoint_dir: Path) -> None:
     """Point the `last` symlink in the checkpoints directory at the given checkpoint.
 
-    Any existing `last` symlink is replaced. The link target is relative to the checkpoints
+    Any existing `last` link is replaced. The link target is relative to the checkpoints
     directory, so the tree stays valid when the run directory is moved.
+
+    Windows only lets administrators (or users with Developer Mode enabled) create symlinks. When
+    the symlink is refused there, a directory junction is created instead: it needs no special
+    privilege and resolves the same way for readers. Unlike the symlink, a junction stores an
+    absolute target, so moving the run directory leaves `last` dangling until the next checkpoint.
 
     Args:
         checkpoint_dir (Path): The checkpoint step directory the `last` link should target.
@@ -125,8 +134,17 @@ def update_last_checkpoint(checkpoint_dir: Path) -> None:
     last_checkpoint_dir = checkpoint_dir.parent / LAST_CHECKPOINT_LINK
     if last_checkpoint_dir.is_symlink():
         last_checkpoint_dir.unlink()
+    elif last_checkpoint_dir.is_junction():
+        # rmdir removes only the junction itself, never the checkpoint it points to.
+        last_checkpoint_dir.rmdir()
     relative_target = checkpoint_dir.relative_to(checkpoint_dir.parent)
-    last_checkpoint_dir.symlink_to(relative_target)
+    try:
+        last_checkpoint_dir.symlink_to(relative_target)
+    except OSError:
+        if sys.platform != "win32":
+            raise
+        _winapi.CreateJunction(str(checkpoint_dir.resolve()), str(last_checkpoint_dir))
+        logging.info(f"Symlinks are not permitted here; created '{last_checkpoint_dir}' as a junction.")
 
 
 # ---------------------------------------------------------------------------------------------

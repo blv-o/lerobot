@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -91,8 +92,44 @@ def test_update_last_checkpoint(tmp_path):
     checkpoint.mkdir()
     update_last_checkpoint(checkpoint)
     last_checkpoint = tmp_path / LAST_CHECKPOINT_LINK
-    assert last_checkpoint.is_symlink()
-    assert last_checkpoint.resolve() == checkpoint
+    # A junction is the Windows fallback when the OS refuses the symlink (no admin / Developer Mode).
+    assert last_checkpoint.is_symlink() or last_checkpoint.is_junction()
+    assert last_checkpoint.resolve() == checkpoint.resolve()
+
+
+def _refuse_symlinks(monkeypatch):
+    def refuse(self, target, target_is_directory=False):
+        raise OSError(1314, "A required privilege is not held by the client")
+
+    monkeypatch.setattr(Path, "symlink_to", refuse)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Junctions are a Windows-only fallback")
+def test_update_last_checkpoint_falls_back_to_junction_on_windows(tmp_path, monkeypatch):
+    _refuse_symlinks(monkeypatch)
+    first, second = tmp_path / "0005", tmp_path / "0010"
+    first.mkdir()
+    second.mkdir()
+    last_checkpoint = tmp_path / LAST_CHECKPOINT_LINK
+
+    update_last_checkpoint(first)
+    assert last_checkpoint.is_junction()
+    assert last_checkpoint.resolve() == first.resolve()
+
+    # The next save must replace the junction, not fail on the existing `last` or touch its target.
+    update_last_checkpoint(second)
+    assert last_checkpoint.is_junction()
+    assert last_checkpoint.resolve() == second.resolve()
+    assert first.is_dir()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows falls back to a junction instead")
+def test_update_last_checkpoint_propagates_symlink_errors_off_windows(tmp_path, monkeypatch):
+    _refuse_symlinks(monkeypatch)
+    checkpoint = tmp_path / "0005"
+    checkpoint.mkdir()
+    with pytest.raises(OSError):
+        update_last_checkpoint(checkpoint)
 
 
 # save_checkpoint round-trips (all formats, real policies) live in
@@ -169,9 +206,12 @@ def test_resolve_resume_checkpoint_downloads_latest_and_links(tmp_path, monkeypa
 
     assert checkpoint_dir == out / CHECKPOINTS_DIR / "020000"
     last = out / CHECKPOINTS_DIR / LAST_CHECKPOINT_LINK
-    assert last.is_symlink()
-    # `last` points at the downloaded step dir.
-    assert (last.parent / last.readlink()).resolve() == checkpoint_dir.resolve()
+    # `last` points at the downloaded step dir (a junction when Windows refuses the symlink).
+    if last.is_symlink():
+        assert (last.parent / last.readlink()).resolve() == checkpoint_dir.resolve()
+    else:
+        assert last.is_junction()
+        assert last.resolve() == checkpoint_dir.resolve()
 
 
 def test_resolve_resume_checkpoint_raises_without_checkpoints(tmp_path, monkeypatch):
