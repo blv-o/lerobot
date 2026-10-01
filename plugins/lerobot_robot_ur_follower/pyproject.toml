@@ -1,0 +1,14 @@
+# Plugin `ur_follower` (Robot) de SPEC_003. El nombre de la distribución lleva guiones bajos y
+# coincide con el paquete: así lo exige register_third_party_plugins de LeRobot.
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lerobot_robot_ur_follower"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["lerobot", "ur_teleop_core"]
+
+[tool.setuptools]
+packages = ["lerobot_robot_ur_follower"]

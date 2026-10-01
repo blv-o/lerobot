@@ -1,0 +1,18 @@
+# Librería común de SPEC_003: config, follower y leader UR sin dependencias de LeRobot.
+# El nombre no empieza por `lerobot_`, así que LeRobot no la importa como plugin.
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ur_teleop_core"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    # Cliente RTDE oficial de Universal Robots, tag v2.7.12 fijado por SHA (principio 3).
+    "UrRtde @ git+https://github.com/UniversalRobots/RTDE_Python_Client_Library.git@29f02eb0d5164b03a0a95dfd4f4f8645be12aa59",
+    "pyyaml>=6.0,<7.0",
+]
+
+[tool.setuptools]
+packages = ["ur_teleop_core"]
