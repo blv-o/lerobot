@@ -1,0 +1,45 @@
+# Dos URSim (UR3e) para SPEC_003: follower y leader, en Docker Desktop (Windows) o Linux.
+#
+#   docker compose -f plugins/ursim/docker-compose.yml up -d
+#
+# Cada simulador se publica en su propia IP de loopback del host, así los dos usan los
+# puertos estándar de UR y el YAML de teleop no necesita campos de puerto:
+#
+#   follower  127.0.0.2   noVNC http://127.0.0.2:6080/vnc.html   RTDE 30004, secundaria 30002, dashboard 29999
+#   leader    127.0.0.3   noVNC http://127.0.0.3:6080/vnc.html   (mismos puertos)
+#
+# Versión fijada por digest (nunca `latest`): URSim 5.25.2. La etiqueta es informativa;
+# Docker usa el digest.
+#
+# Los programas (.urp) e instalaciones de cada robot persisten en ./programs/<robot>.
+
+name: ur-teleop-ursim
+
+x-ursim: &ursim
+  image: universalrobots/ursim_e-series:5.25.2@sha256:a4c4365207d54d1a1a4ead87526ff3781e2e98ae703c72f362060a46688fa7a4
+  environment:
+    - ROBOT_MODEL=UR3   # en la imagen e-series, UR3 = UR3e
+  restart: unless-stopped
+
+services:
+  ursim-follower:
+    <<: *ursim
+    container_name: ursim-follower
+    ports:
+      - "127.0.0.2:6080:6080"
+      - "127.0.0.2:29999:29999"
+      - "127.0.0.2:30002:30002"
+      - "127.0.0.2:30004:30004"
+    volumes:
+      - ./programs/follower:/ursim/programs
+
+  ursim-leader:
+    <<: *ursim
+    container_name: ursim-leader
+    ports:
+      - "127.0.0.3:6080:6080"
+      - "127.0.0.3:29999:29999"
+      - "127.0.0.3:30002:30002"
+      - "127.0.0.3:30004:30004"
+    volumes:
+      - ./programs/leader:/ursim/programs
