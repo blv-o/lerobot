@@ -16,14 +16,26 @@ import yaml
 PROFILES = ("sim", "real")
 # Todos se controlan igual por RTDE (6 articulaciones, servoj): un modelo nuevo se añade aquí.
 UR_TYPES = ("ur3e", "ur5e", "ur7e", "ur10e", "ur12e", "ur15", "ur16e", "ur20", "ur30")
+# Réplicas de bajo coste con la cinemática del UR, leídas por un puerto serie; solo como leader.
+LOW_COST_LEADER_TYPES = ("feetech", "as5600")
+DIRECTIONS = ("normal", "invertido")
 GAIN_RANGE = (100, 2000)
 LOOKAHEAD_RANGE_S = (0.03, 0.2)
 N_JOINTS = 6
 TEMPLATE = "plugins/configs/ur_config.yaml"
 
 # Claves que debe tener el YAML (las hojas valen None; solo importa la forma).
+# La sección `leader` depende de su `type`: ver `_leader_schema`.
+UR_LEADER_SCHEMA: dict[str, Any] = {"type": None, "ip": None, "rtde_hz": None, "timeout_ms": None}
+LOW_COST_LEADER_SCHEMA: dict[str, Any] = {
+    "type": None,
+    "port": None,
+    "hz": None,
+    "timeout_ms": None,
+    "mapping": {"direction": None},
+}
 SCHEMA: dict[str, Any] = {
-    "leader": {"type": None, "ip": None, "rtde_hz": None, "timeout_ms": None},
+    "leader": UR_LEADER_SCHEMA,
     "follower": {
         "type": None,
         "ip": None,
@@ -39,9 +51,6 @@ SCHEMA: dict[str, Any] = {
     "start_pose_deg": None,
     "start_tolerance_deg": None,
 }
-# Solo un leader UR necesita IP; un leader de réplica con encoders o servos no la tiene.
-# Su obligatoriedad se comprueba en `_validate`, según `leader.type`.
-CONDITIONAL_KEYS = {"leader.ip"}
 
 
 class ConfigError(ValueError):
@@ -54,11 +63,20 @@ class ConfigError(ValueError):
 
 
 @dataclass(frozen=True)
-class LeaderConfig:
+class UrLeaderConfig:
     type: str
-    ip: str | None  # None solo para leaders que no son un UR
+    ip: str
     rtde_hz: float
     timeout_s: float
+
+
+@dataclass(frozen=True)
+class LowCostLeaderConfig:
+    type: str
+    port: str
+    hz: float
+    timeout_s: float
+    direction: tuple[str, ...]  # "normal" | "invertido" por articulación, en el orden base..wrist_3
 
 
 @dataclass(frozen=True)
@@ -86,7 +104,7 @@ class FollowerConfig:
 
 @dataclass(frozen=True)
 class TeleopConfig:
-    leader: LeaderConfig
+    leader: UrLeaderConfig | LowCostLeaderConfig
     follower: FollowerConfig
     start_pose_rad: tuple[float, ...]
     start_tolerance_rad: float
@@ -102,9 +120,26 @@ def load_config(path: Path) -> TeleopConfig:
         resolved["leader"] = _resolve(resolved["leader"], leader_profile)
     if "follower" in resolved:
         resolved["follower"] = _resolve(resolved["follower"], follower_profile)
-    _check_keys(resolved, SCHEMA, "")
+    _check_keys(resolved, {**SCHEMA, "leader": _leader_schema(resolved.get("leader"))}, "")
     _validate(resolved)
     return _build(resolved)
+
+
+def _leader_schema(leader: Any) -> dict[str, Any]:
+    """Elige las claves de `leader` según su tipo: un UR se lee por RTDE, una réplica por serie."""
+    if not isinstance(leader, dict):
+        return UR_LEADER_SCHEMA  # _check_keys informará de que falta la sección o no lo es
+    if "type" not in leader:
+        raise ConfigError("leader.type", f"obligatoria (ver la plantilla {TEMPLATE})")
+    leader_type = leader["type"]
+    if isinstance(leader_type, dict):
+        raise ConfigError("leader.type", "un valor por perfil debe ser {sim: ..., real: ...} completo")
+    if leader_type in LOW_COST_LEADER_TYPES:
+        return LOW_COST_LEADER_SCHEMA
+    if leader_type in UR_TYPES:
+        return UR_LEADER_SCHEMA
+    valid = list(UR_TYPES + LOW_COST_LEADER_TYPES)
+    raise ConfigError("leader.type", f"tipo {leader_type!r} no válido; tipos válidos: {valid}")
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -156,9 +191,8 @@ def _check_keys(user: dict[str, Any], schema: dict[str, Any], path: str) -> None
     for key, sub_schema in schema.items():
         field = f"{path}{key}"
         if key not in user:
-            if field not in CONDITIONAL_KEYS:
-                raise ConfigError(field, f"obligatoria (ver la plantilla {TEMPLATE})")
-        elif isinstance(sub_schema, dict):
+            raise ConfigError(field, f"obligatoria (ver la plantilla {TEMPLATE})")
+        if isinstance(sub_schema, dict):
             if not isinstance(user[key], dict):
                 raise ConfigError(field, "debe ser una sección con sus claves")
             _check_keys(user[key], sub_schema, f"{field}.")
@@ -167,15 +201,14 @@ def _check_keys(user: dict[str, Any], schema: dict[str, Any], path: str) -> None
 
 
 def _validate(c: dict[str, Any]) -> None:
-    leader, follower = c["leader"], c["follower"]
+    follower = c["follower"]
     servo, watchdog = follower["servo"], follower["watchdog"]
-    _check_type("leader.type", leader["type"])
-    _check_type("follower.type", follower["type"])
-    if leader["type"] in UR_TYPES:
-        _check_ip("leader.ip", leader.get("ip"), "obligatoria con un leader UR")
-    _check_ip("follower.ip", follower["ip"], "obligatoria")
-    _check_positive("leader.rtde_hz", leader["rtde_hz"])
-    _check_number("leader.timeout_ms", leader["timeout_ms"])
+    _check_leader(c["leader"])
+    if follower["type"] not in UR_TYPES:
+        raise ConfigError(
+            "follower.type", f"tipo {follower['type']!r} no válido; tipos válidos: {list(UR_TYPES)}"
+        )
+    _check_text("follower.ip", follower["ip"])
     _check_positive("follower.servo.hz", servo["hz"])
     _check_range("follower.servo.gain", servo["gain"], GAIN_RANGE)
     _check_range("follower.servo.lookahead_s", servo["lookahead_s"], LOOKAHEAD_RANGE_S)
@@ -186,14 +219,28 @@ def _validate(c: dict[str, Any]) -> None:
     _check_number("start_tolerance_deg", c["start_tolerance_deg"])
 
 
-def _check_type(field: str, value: Any) -> None:
-    if value not in UR_TYPES:
-        raise ConfigError(field, f"tipo {value!r} no válido; tipos válidos: {list(UR_TYPES)}")
+def _check_leader(leader: dict[str, Any]) -> None:
+    # El tipo ya se validó en _leader_schema.
+    _check_number("leader.timeout_ms", leader["timeout_ms"])
+    if leader["type"] in UR_TYPES:
+        _check_text("leader.ip", leader["ip"])
+        _check_positive("leader.rtde_hz", leader["rtde_hz"])
+        return
+    _check_text("leader.port", leader["port"])
+    _check_positive("leader.hz", leader["hz"])
+    direction = leader["mapping"]["direction"]
+    if (
+        not isinstance(direction, list)
+        or len(direction) != N_JOINTS
+        or any(d not in DIRECTIONS for d in direction)
+    ):
+        raise ConfigError(
+            "leader.mapping.direction",
+            f"debe ser una lista de {N_JOINTS} valores de {list(DIRECTIONS)} (vale {direction!r})",
+        )
 
 
-def _check_ip(field: str, value: Any, missing_reason: str) -> None:
-    if value is None:
-        raise ConfigError(field, missing_reason)
+def _check_text(field: str, value: Any) -> None:
     if not isinstance(value, str):
         raise ConfigError(field, f"debe ser texto (vale {value!r})")
 
@@ -235,16 +282,26 @@ def _check_start_pose(pose: Any) -> None:
             raise ConfigError("start_pose_deg", f"el valor {i} no es un número ({value!r})")
 
 
+def _build_leader(leader: dict[str, Any]) -> UrLeaderConfig | LowCostLeaderConfig:
+    timeout_s = leader["timeout_ms"] / 1000
+    if leader["type"] in UR_TYPES:
+        return UrLeaderConfig(
+            type=leader["type"], ip=leader["ip"], rtde_hz=leader["rtde_hz"], timeout_s=timeout_s
+        )
+    return LowCostLeaderConfig(
+        type=leader["type"],
+        port=leader["port"],
+        hz=leader["hz"],
+        timeout_s=timeout_s,
+        direction=tuple(leader["mapping"]["direction"]),
+    )
+
+
 def _build(c: dict[str, Any]) -> TeleopConfig:
-    leader, follower = c["leader"], c["follower"]
+    follower = c["follower"]
     servo, watchdog = follower["servo"], follower["watchdog"]
     return TeleopConfig(
-        leader=LeaderConfig(
-            type=leader["type"],
-            ip=leader.get("ip"),
-            rtde_hz=leader["rtde_hz"],
-            timeout_s=leader["timeout_ms"] / 1000,
-        ),
+        leader=_build_leader(c["leader"]),
         follower=FollowerConfig(
             type=follower["type"],
             ip=follower["ip"],

@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 import yaml
 from ur_core import ConfigError, TeleopConfig, load_config
-from ur_core.config import UR_TYPES
+from ur_core.config import LOW_COST_LEADER_TYPES, UR_TYPES, LowCostLeaderConfig, UrLeaderConfig
 
 LEADER_SIM_IP = "127.0.0.3"
 LEADER_REAL_IP = "192.168.1.11"
@@ -183,23 +183,107 @@ def test_every_key_is_required(tmp_path: Path, dotted: str) -> None:
     assert exc.value.field == dotted
 
 
-def test_ur_leader_ip_error_mentions_ur(tmp_path: Path) -> None:
-    """La IP del leader solo se exige si el leader es un UR (una réplica con encoders no tiene)."""
+def test_unknown_leader_type_lists_valid_types(tmp_path: Path) -> None:
     data = base()
-    remove_path(data, "leader.ip")
+    data["leader"]["type"] = "ur99"
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, data)
-    assert "UR" in exc.value.reason
+    assert exc.value.field == "leader.type"
+    assert all(t in exc.value.reason for t in UR_TYPES + LOW_COST_LEADER_TYPES)
 
 
-@pytest.mark.parametrize("side", ["leader", "follower"])
-def test_unknown_type_lists_valid_types(tmp_path: Path, side: str) -> None:
+@pytest.mark.parametrize("value", ["ur99", "feetech", "as5600"])
+def test_follower_type_must_be_ur(tmp_path: Path, value: str) -> None:
+    """El follower siempre es un UR: un tipo low-cost solo vale como leader."""
     data = base()
-    data[side]["type"] = "ur99"
+    data["follower"]["type"] = value
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, data)
-    assert exc.value.field == f"{side}.type"
+    assert exc.value.field == "follower.type"
     assert all(model in exc.value.reason for model in UR_TYPES)
+
+
+def test_ur_leader_gives_ur_leader_config(tmp_path: Path) -> None:
+    leader = load(tmp_path, base()).leader
+    assert isinstance(leader, UrLeaderConfig)
+
+
+# ---------- Leader low-cost (réplica con servos Feetech o encoders AS5600) ----------
+
+
+def low_cost_base(leader_type: str = "feetech") -> dict[str, Any]:
+    data = base()
+    data["leader"] = {
+        "type": leader_type,
+        "port": {"sim": "COM3", "real": "COM4"},
+        "hz": 100,
+        "timeout_ms": 50,
+        "mapping": {"direction": ["normal", "invertido", "normal", "normal", "invertido", "normal"]},
+    }
+    return data
+
+
+@pytest.mark.parametrize("leader_type", LOW_COST_LEADER_TYPES)
+def test_low_cost_leader_loads(tmp_path: Path, leader_type: str) -> None:
+    leader = load(tmp_path, low_cost_base(leader_type)).leader
+    assert isinstance(leader, LowCostLeaderConfig)
+    assert leader.type == leader_type
+    assert leader.port == "COM3"
+    assert leader.hz == 100
+    assert leader.timeout_s == pytest.approx(0.05)
+    assert leader.direction == ("normal", "invertido", "normal", "normal", "invertido", "normal")
+
+
+def test_low_cost_leader_port_follows_leader_profile(tmp_path: Path) -> None:
+    data = low_cost_base()
+    data["profile"] = {"leader": "real", "follower": "sim"}
+    assert load(tmp_path, data).leader.port == "COM4"
+
+
+@pytest.mark.parametrize(
+    "dotted",
+    [
+        "leader.type",
+        "leader.port",
+        "leader.hz",
+        "leader.timeout_ms",
+        "leader.mapping",
+        "leader.mapping.direction",
+    ],
+)
+def test_low_cost_leader_keys_are_required(tmp_path: Path, dotted: str) -> None:
+    data = low_cost_base()
+    remove_path(data, dotted)
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, data)
+    assert exc.value.field == dotted
+
+
+@pytest.mark.parametrize(("dotted", "value"), [("leader.ip", "127.0.0.3"), ("leader.rtde_hz", 500)])
+def test_ur_only_keys_are_rejected_with_low_cost_leader(tmp_path: Path, dotted: str, value: Any) -> None:
+    """Una clave de leader UR en un leader low-cost no se ignora: el YAML estaría mezclando tipos."""
+    data = low_cost_base()
+    set_path(data, dotted, value)
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, data)
+    assert exc.value.field == dotted
+
+
+@pytest.mark.parametrize(
+    ("dotted", "value"),
+    [
+        ("leader.hz", 0),
+        ("leader.port", 3),
+        ("leader.mapping.direction", ["normal"] * 5),
+        ("leader.mapping.direction", ["normal"] * 5 + ["inverted"]),
+    ],
+)
+def test_low_cost_leader_values_are_validated(tmp_path: Path, dotted: str, value: Any) -> None:
+    data = low_cost_base()
+    set_path(data, dotted, value)
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, data)
+    assert exc.value.field == dotted
 
 
 @pytest.mark.parametrize(

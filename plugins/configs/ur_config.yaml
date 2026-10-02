@@ -9,11 +9,19 @@
 profile: sim                     # sim | real | {leader: sim|real, follower: sim|real}
 
 leader:
-  type: ur3e                     # ur3e | ur5e | ur7e | ur10e | ur12e | ur15 | ur16e | ur20 | ur30
+  # Un UR (ur3e | ur5e | ur7e | ur10e | ur12e | ur15 | ur16e | ur20 | ur30) o una réplica de
+  # bajo coste con la cinemática del UR (feetech | as5600). Cada tipo lleva sus propias claves.
+  type: ur3e
+  timeout_ms: 100                # sin dato nuevo en este tiempo → error de lectura del leader
+  # --- solo leader UR ---
   # sim: plugins/ursim/docker-compose.yml. real: cambiar por la IP del robot.
   ip: {sim: 127.0.0.3, real: 192.168.1.11}
   rtde_hz: 500                   # frecuencia de lectura RTDE del leader
-  timeout_ms: 100                # sin timestamp nuevo en este tiempo → error de lectura del leader
+  # --- solo leader feetech | as5600 (en lugar de ip y rtde_hz) ---
+  # port: COM3                   # puerto serie (Linux: /dev/ttyACM0)
+  # hz: 100                      # frecuencia de lectura del bus
+  # mapping:
+  #   direction: [normal, normal, normal, normal, normal, normal]   # normal | invertido, base..wrist_3
 
 follower:
   type: ur3e                     # mismos modelos que el leader
