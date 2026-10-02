@@ -294,6 +294,14 @@ def test_wrong_shape_raises_config_error(tmp_path: Path, dotted: str, value: Any
     assert exc.value.field == dotted
 
 
+def test_reference_yaml_loads() -> None:
+    """T1.3: el YAML de referencia que se pasa a `--robot.config_path`/`--teleop.config_path`."""
+    reference = Path(__file__).parents[2] / "configs" / "ur_config.yaml"
+    config = load_config(reference)
+    assert config.leader.ip == LEADER_SIM_IP
+    assert config.follower.ip == FOLLOWER_SIM_IP
+
+
 @pytest.mark.parametrize("content", ["", "- 1\n- 2\n", "solo texto\n"])
 def test_root_must_be_a_mapping(tmp_path: Path, content: str) -> None:
     path = tmp_path / "ur_config.yaml"

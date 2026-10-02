@@ -1,0 +1,31 @@
+# Configuración de la teleoperación UR → UR (SPEC_003). La leen los dos plugins:
+#   lerobot-teleoperate --robot.type=ur_follower --robot.config_path=plugins/configs/ur_config.yaml \
+#                       --teleop.type=ur_leader  --teleop.config_path=plugins/configs/ur_config.yaml ...
+# Cualquier campo puede escribirse como {sim: valor, real: valor}; se resuelve con el perfil de su
+# lado. Un campo ausente toma el valor por defecto de este mismo fichero, salvo las IPs (obligatorias).
+# Las cámaras no van aquí: llegan por la CLI estándar de LeRobot (--robot.cameras).
+
+profile: sim                     # sim | real | {leader: sim|real, follower: sim|real}
+
+leader:
+  type: ur3e                     # ur3e | ur5e
+  # sim: plugins/ursim/docker-compose.yml. real: provisional, cambiar al trabajar con los robots (F4).
+  ip: {sim: 127.0.0.3, real: 192.168.1.11}
+  rtde_hz: 500                   # frecuencia de lectura RTDE del leader
+  timeout_ms: 100                # sin timestamp nuevo en este tiempo → LeaderReadError
+
+follower:
+  type: ur3e                     # ur3e | ur5e
+  ip: {sim: 127.0.0.2, real: 192.168.1.10}
+  servo:
+    hz: 125                      # frecuencia RTDE y t de servoj = 1/hz (500 solo tras pasar el test timing)
+    gain: 300                    # [100, 2000]
+    lookahead_s: 0.1             # [0.03, 0.2]
+    max_joint_speed_deg_s: 60    # incremento máximo por articulación entre consignas consecutivas
+    target_period_ms: 33         # = 1000 / --fps de LeRobot (30 fps ↔ 33 ms)
+  watchdog:
+    hold_ms: 100                 # sin consigna nueva → mantiene la última posición
+    stop_ms: 500                 # sin consigna nueva → STOP (debe ser > hold_ms)
+
+start_pose_deg: [0, -90, 90, -90, -90, 0]   # posición inicial de ambos robots, en el orden base..wrist_3
+start_tolerance_deg: 2
