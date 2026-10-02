@@ -8,9 +8,9 @@ Instala la librería `lerobot` completa (`src/`, sin cambios salvo lo indicado a
 
 | Dónde | Qué |
 |---|---|
-| `plugins/lerobot_robot_ur_follower/` | Robot `ur_follower`: UR que sigue las consignas por RTDE (`servoj` en un URScript que lee registros RTDE) |
-| `plugins/lerobot_teleoperator_ur_leader/` | Teleoperador `ur_leader`: UR en freedrive (se mueve a mano) del que solo se lee la posición articular |
-| `plugins/ur_core/` | Lógica común a ambos, con el cliente RTDE oficial de UR |
+| `plugins/packages/lerobot_robot_ur_follower/` | Robot `ur_follower`: UR que sigue las consignas por RTDE (`servoj` en un URScript que lee registros RTDE) |
+| `plugins/packages/lerobot_teleoperator_ur_leader/` | Teleoperador `ur_leader`: UR en freedrive (se mueve a mano) del que solo se lee la posición articular |
+| `plugins/packages/ur_core/` | Lógica común a ambos, con el cliente RTDE oficial de UR |
 | `plugins/ursim/` | Dos URSim 5.25.2 (fijados por digest) en Docker para probar sin hardware |
 | `plugins/tests/` | Suite de los plugins |
 | `src/lerobot/common/train_utils.py` | `lerobot-train` no se cae en Windows al crear `checkpoints/last` (usa un *junction* si no se puede crear el symlink) |
@@ -30,7 +30,7 @@ git clone https://github.com/blv-o/lerobot.git
 cd lerobot
 git switch lerobot/ur-plugin
 python -m pip install -e ".[core_scripts,training,feetech]"
-python -m pip install -e plugins/ur_core -e plugins/lerobot_robot_ur_follower -e plugins/lerobot_teleoperator_ur_leader
+python -m pip install -e plugins/packages/ur_core -e plugins/packages/lerobot_robot_ur_follower -e plugins/packages/lerobot_teleoperator_ur_leader
 ```
 
 Comprobación: `python -c "import lerobot; print(lerobot.__file__)"` debe apuntar a esta carpeta (`.../lerobot/src/lerobot/`), no a `site-packages`.
@@ -38,7 +38,7 @@ Comprobación: `python -c "import lerobot; print(lerobot.__file__)"` debe apunta
 ## Dependencias
 
 - `pyproject.toml` (raíz): el de LeRobot, sin cambios. Las dependencias obligatorias las necesita `src/`; los *extras* (`feetech`, `smolvla`, `aloha`…) solo se instalan si se piden entre corchetes, así que los que no se usan no ocupan nada.
-- `plugins/*/pyproject.toml`: las dependencias propias de este fork, junto al código que las usa. Por ejemplo, el cliente RTDE oficial de UR (fijado por commit) y `pyyaml` están en `plugins/ur_core/pyproject.toml`.
+- `plugins/packages/*/pyproject.toml`: las dependencias propias de este fork, junto al código que las usa. Por ejemplo, el cliente RTDE oficial de UR (fijado por commit) y `pyyaml` están en `plugins/packages/ur_core/pyproject.toml`.
 
 Una dependencia nueva se declara en el `pyproject.toml` del plugin que la necesita, no en el de la raíz.
 
