@@ -1,7 +1,7 @@
-"""Teleoperación leader/follower de robots UR por RTDE (SPEC_003).
+"""Teleoperación leader/follower de robots UR por RTDE.
 
 No importa LeRobot: los plugins `lerobot_robot_ur_follower` y `lerobot_teleoperator_ur_leader`
-son la única capa que habla con él (principio 1 de project/CONSTITUTION.md).
+son la única capa que habla con él, así un cambio interno de LeRobot no llega hasta aquí.
 """
 
 from ur_core.config import ConfigError, TeleopConfig, load_config

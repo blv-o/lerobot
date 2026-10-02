@@ -1,4 +1,4 @@
-"""T0.3 / RF-21: los tipos `ur_follower` y `ur_leader` quedan registrados en LeRobot."""
+"""Los tipos `ur_follower` y `ur_leader` quedan registrados en LeRobot."""
 
 import os
 import shutil

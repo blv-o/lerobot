@@ -1,4 +1,4 @@
-# Dos URSim (UR3e) para SPEC_003: follower y leader, en Docker Desktop (Windows) o Linux.
+# Dos URSim (UR3e) para la teleoperación UR: follower y leader, en Docker Desktop (Windows) o Linux.
 #
 #   docker compose -f plugins/ursim/docker-compose.yml up -d
 #

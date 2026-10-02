@@ -1,4 +1,4 @@
-# Plugin `ur_follower` (Robot) de SPEC_003. El nombre de la distribución lleva guiones bajos y
+# Plugin `ur_follower` (Robot). El nombre de la distribución lleva guiones bajos y
 # coincide con el paquete: así lo exige register_third_party_plugins de LeRobot.
 [build-system]
 requires = ["setuptools>=69"]

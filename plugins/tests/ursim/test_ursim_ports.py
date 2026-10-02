@@ -1,6 +1,6 @@
-"""T0.4: los dos URSim de plugins/ursim/docker-compose.yml son alcanzables desde el host.
+"""Los dos URSim de plugins/ursim/docker-compose.yml son alcanzables desde el host.
 
-Cada URSim se publica en su propia IP de loopback (decisión de SPEC_003, 2026-10-02), así
+Cada URSim se publica en su propia IP de loopback, así
 ambos usan los puertos estándar de UR sin campos de puerto en el YAML.
 """
 

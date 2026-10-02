@@ -1,4 +1,4 @@
-"""Plugin `ur_leader` de SPEC_003.
+"""Plugin `ur_leader`.
 
 LeRobot importa este paquete al arrancar cualquier `lerobot-*` (register_third_party_plugins),
 y eso registra `UrLeaderConfig` como `--teleop.type=ur_leader`. `UrLeader` se reexporta aquí

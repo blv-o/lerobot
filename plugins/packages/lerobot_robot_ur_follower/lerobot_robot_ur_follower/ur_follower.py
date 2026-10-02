@@ -4,7 +4,7 @@ from lerobot.robots import Robot
 
 from .config_ur_follower import UrFollowerConfig
 
-_PENDING = "Pendiente de la fase F3 de SPEC_003"
+_PENDING = "Pendiente de implementar"
 
 
 class UrFollower(Robot):

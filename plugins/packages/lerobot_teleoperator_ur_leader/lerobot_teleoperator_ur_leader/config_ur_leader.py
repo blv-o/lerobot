@@ -7,7 +7,9 @@ from lerobot.teleoperators import TeleoperatorConfig
 @TeleoperatorConfig.register_subclass("ur_leader")
 @dataclass
 class UrLeaderConfig(TeleoperatorConfig):
-    """Todo lo propio del leader (tipo, IP, timeout) vive en el YAML compartido con
-    `ur_follower`; aquí solo va su ruta."""
+    """Solo la ruta del YAML compartido.
+
+    Todo lo propio del leader (tipo, IP, timeout) vive en el YAML compartido con `ur_follower`.
+    """
 
     config_path: Path

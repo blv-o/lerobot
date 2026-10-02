@@ -4,7 +4,7 @@ from lerobot.teleoperators import Teleoperator
 
 from .config_ur_leader import UrLeaderConfig
 
-_PENDING = "Pendiente de la fase F3 de SPEC_003"
+_PENDING = "Pendiente de implementar"
 
 
 class UrLeader(Teleoperator):

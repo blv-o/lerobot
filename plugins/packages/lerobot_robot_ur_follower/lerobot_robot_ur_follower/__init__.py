@@ -1,4 +1,4 @@
-"""Plugin `ur_follower` de SPEC_003.
+"""Plugin `ur_follower`.
 
 LeRobot importa este paquete al arrancar cualquier `lerobot-*` (register_third_party_plugins),
 y eso registra `UrFollowerConfig` como `--robot.type=ur_follower`. `UrFollower` se reexporta aquí

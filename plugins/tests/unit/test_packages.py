@@ -1,4 +1,4 @@
-"""T0.2: los tres paquetes se instalan e importan.
+"""Los tres paquetes se instalan e importan.
 
 LeRobot solo descubre un plugin si el nombre de su distribución empieza por
 `lerobot_robot_`/`lerobot_teleoperator_` con guiones bajos y coincide con el paquete
@@ -22,7 +22,7 @@ def test_distribution_is_installed_and_importable(dist_name: str) -> None:
 
 
 def test_core_does_not_import_lerobot() -> None:
-    """Capa anticorrupción (principio 1): solo los plugins hablan con LeRobot."""
+    """Capa anticorrupción: solo los plugins hablan con LeRobot."""
     import ur_core
 
     for path in Path(ur_core.__path__[0]).rglob("*.py"):

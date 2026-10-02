@@ -1,4 +1,4 @@
-# Plugin `ur_leader` (Teleoperator) de SPEC_003. El nombre de la distribución lleva guiones bajos
+# Plugin `ur_leader` (Teleoperator). El nombre de la distribución lleva guiones bajos
 # y coincide con el paquete: así lo exige register_third_party_plugins de LeRobot.
 [build-system]
 requires = ["setuptools>=69"]
