@@ -46,8 +46,8 @@ pytest tests                      # suite original de LeRobot
 ## Ramas
 
 - `main`: copia del upstream, solo como referencia para comparar y traer actualizaciones.
-- `fix/windows-last-checkpoint`: arreglo de Windows + retirada de lo que no aplica a este proyecto. Base de las demás ramas.
-- `lerobot/ur-plugin` (rama por defecto): fork completo con los plugins UR; aquí llega el trabajo de cada spec.
+- `fix/windows-last-checkpoint`: arreglo de Windows + retirada de lo que no aplica a este proyecto (ya incluida en `lerobot/ur-plugin`).
+- `lerobot/ur-plugin` (rama por defecto): fork completo con los plugins UR; cada spec se desarrolla en su rama `spec/0NN-...` creada desde aquí y se fusiona al terminar.
 
 ## Licencia
 
