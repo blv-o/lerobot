@@ -142,3 +142,161 @@ def test_missing_keys_take_the_spec_defaults(tmp_path: Path) -> None:
         tuple(math.radians(d) for d in (0, -90, 90, -90, -90, 0))
     )
     assert config.start_tolerance_rad == pytest.approx(math.radians(2))
+
+
+# ---------- T1.2: validaciones (RF-4, 5, 6) ----------
+
+
+def set_path(data: dict[str, Any], dotted: str, value: Any) -> None:
+    *parents, last = dotted.split(".")
+    for key in parents:
+        data = data[key]
+    data[last] = value
+
+
+def remove_path(data: dict[str, Any], dotted: str) -> None:
+    *parents, last = dotted.split(".")
+    for key in parents:
+        data = data[key]
+    data.pop(last)
+
+
+@pytest.mark.parametrize("side", ["leader", "follower"])
+def test_unknown_type_lists_valid_types(tmp_path: Path, side: str) -> None:
+    """RF-4 (CA1.4)."""
+    data = base()
+    data[side]["type"] = "ur10e"
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, data)
+    assert exc.value.field == f"{side}.type"
+    assert "ur3e" in exc.value.reason and "ur5e" in exc.value.reason
+
+
+@pytest.mark.parametrize(
+    ("dotted", "value"),
+    [
+        ("gripper_follower", {"type": "none"}),
+        ("mapping", {"direction": ["normal"] * 6}),
+        ("leader.port", "COM3"),
+        ("follower.servo.foo", 1),
+    ],
+)
+def test_unknown_key_is_rejected(tmp_path: Path, dotted: str, value: Any) -> None:
+    """RF-5: una clave fuera de la spec (p. ej. de SPEC_004/005) no se ignora en silencio."""
+    data = base()
+    set_path(data, dotted, value)
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, data)
+    assert exc.value.field == dotted
+
+
+@pytest.mark.parametrize(
+    ("dotted", "value"),
+    [
+        ("follower.servo.gain", 99),
+        ("follower.servo.gain", 2001),
+        ("follower.servo.lookahead_s", 0.02),
+        ("follower.servo.lookahead_s", 0.21),
+        ("follower.servo.hz", 0),
+        ("follower.servo.hz", -125),
+        ("leader.rtde_hz", 0),
+        ("follower.watchdog.hold_ms", 0),
+        ("follower.watchdog.hold_ms", -1),
+        ("follower.watchdog.hold_ms", 500),
+        ("follower.watchdog.hold_ms", 600),
+        ("start_pose_deg", [0, -90, 90, -90, -90]),
+        ("start_pose_deg", [0, -90, 90, -90, -90, 0, 0]),
+        ("start_pose_deg", [0, -90, 90, -90, -90, "a"]),
+        ("follower.servo.gain", True),
+        ("follower.servo.gain", "300"),
+    ],
+)
+def test_out_of_range_value_is_rejected(tmp_path: Path, dotted: str, value: Any) -> None:
+    """RF-6 (CA1.8)."""
+    data = base()
+    set_path(data, dotted, value)
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, data)
+    assert exc.value.field == dotted
+
+
+@pytest.mark.parametrize(
+    ("dotted", "value"),
+    [
+        ("follower.servo.gain", 100),
+        ("follower.servo.gain", 2000),
+        ("follower.servo.lookahead_s", 0.03),
+        ("follower.servo.lookahead_s", 0.2),
+        ("follower.watchdog.hold_ms", 499),
+    ],
+)
+def test_range_limits_are_inclusive(tmp_path: Path, dotted: str, value: Any) -> None:
+    """RF-6: los bordes de los intervalos cerrados son válidos."""
+    data = base()
+    set_path(data, dotted, value)
+    load(tmp_path, data)
+
+
+def test_follower_ip_is_required(tmp_path: Path) -> None:
+    data = base()
+    remove_path(data, "follower.ip")
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, data)
+    assert exc.value.field == "follower.ip"
+
+
+def test_ur_leader_requires_ip(tmp_path: Path) -> None:
+    """La IP del leader solo es obligatoria si es un UR (un leader low-cost de SPEC_005 no tiene)."""
+    data = base()
+    remove_path(data, "leader.ip")
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, data)
+    assert exc.value.field == "leader.ip"
+    assert "UR" in exc.value.reason
+
+
+@pytest.mark.parametrize("side", ["leader", "follower"])
+def test_ip_must_be_text(tmp_path: Path, side: str) -> None:
+    data = base()
+    data[side]["ip"] = 1234
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, data)
+    assert exc.value.field == f"{side}.ip"
+
+
+@pytest.mark.parametrize(
+    "profile",
+    ["simulation", {"leader": "real"}, {"leader": "real", "follower": "sim", "x": "sim"}, 1],
+)
+def test_invalid_profile_is_rejected(tmp_path: Path, profile: Any) -> None:
+    data = base()
+    data["profile"] = profile
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, data)
+    assert exc.value.field.startswith("profile")
+
+
+@pytest.mark.parametrize(
+    ("dotted", "value"),
+    [
+        ("leader", None),
+        ("follower.servo", [125, 300]),
+        ("leader.type", {"sim": "ur3e"}),
+        ("follower.ip", {"sim": "a", "real": "b", "extra": "c"}),
+    ],
+)
+def test_wrong_shape_raises_config_error(tmp_path: Path, dotted: str, value: Any) -> None:
+    """Un YAML mal formado da siempre ConfigError con el campo, nunca TypeError/KeyError."""
+    data = base()
+    set_path(data, dotted, value)
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, data)
+    assert exc.value.field == dotted
+
+
+@pytest.mark.parametrize("content", ["", "- 1\n- 2\n", "solo texto\n"])
+def test_root_must_be_a_mapping(tmp_path: Path, content: str) -> None:
+    path = tmp_path / "ur_config.yaml"
+    path.write_text(content, encoding="utf-8")
+    with pytest.raises(ConfigError):
+        load_config(path)
