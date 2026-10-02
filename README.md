@@ -35,6 +35,13 @@ python -m pip install -e plugins/ur_teleop_core -e plugins/lerobot_robot_ur_foll
 
 Comprobación: `python -c "import lerobot; print(lerobot.__file__)"` debe apuntar a esta carpeta (`.../lerobot/src/lerobot/`), no a `site-packages`.
 
+## Dependencias
+
+- `pyproject.toml` (raíz): el de LeRobot, sin cambios. Las dependencias obligatorias las necesita `src/`; los *extras* (`feetech`, `smolvla`, `aloha`…) solo se instalan si se piden entre corchetes, así que los que no se usan no ocupan nada.
+- `plugins/*/pyproject.toml`: las dependencias propias de este fork, junto al código que las usa. Por ejemplo, el cliente RTDE oficial de UR (fijado por commit) y `pyyaml` están en `plugins/ur_teleop_core/pyproject.toml`.
+
+Una dependencia nueva se declara en el `pyproject.toml` del plugin que la necesita, no en el de la raíz.
+
 ## Tests
 
 ```bash
