@@ -1,6 +1,6 @@
 # LeRobot para robots UR
 
-Fork de [huggingface/lerobot](https://github.com/huggingface/lerobot) adaptado a brazos Universal Robots (UR3e), desarrollado en el TFM del Máster en Industria 4.0 (UPC).
+Fork de [huggingface/lerobot](https://github.com/huggingface/lerobot) adaptado a brazos Universal Robots (UR3e).
 
 Instala la librería `lerobot` completa (`src/`, sin cambios salvo lo indicado abajo) más unos plugins que añaden un robot follower y un teleoperador leader UR controlados por RTDE. Toda la documentación, ejemplos, Dockerfiles y CI del original se han retirado de este repositorio: para eso, consulta [el repositorio original](https://github.com/huggingface/lerobot) y [su documentación](https://huggingface.co/docs/lerobot).
 
