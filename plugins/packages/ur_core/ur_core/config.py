@@ -1,7 +1,9 @@
-"""Carga del YAML compartido por `ur_follower` y `ur_leader` (RF-1..7 de SPEC_003).
+"""Carga del YAML compartido por `ur_follower` y `ur_leader`.
 
 El YAML usa las unidades cómodas para una persona (grados, ms); el resto del código solo ve
 estas dataclasses inmutables en rad y s, para que ninguna conversión se repita ni se olvide.
+No hay valores por defecto: la plantilla `plugins/configs/ur_config.yaml` lleva todas las
+claves y lo que se ejecuta es exactamente lo que está escrito en el fichero.
 """
 
 import math
@@ -12,32 +14,34 @@ from typing import Any
 import yaml
 
 PROFILES = ("sim", "real")
-UR_TYPES = ("ur3e", "ur5e")
+# Todos se controlan igual por RTDE (6 articulaciones, servoj): un modelo nuevo se añade aquí.
+UR_TYPES = ("ur3e", "ur5e", "ur7e", "ur10e", "ur12e", "ur15", "ur16e", "ur20", "ur30")
 GAIN_RANGE = (100, 2000)
 LOOKAHEAD_RANGE_S = (0.03, 0.2)
 N_JOINTS = 6
+TEMPLATE = "plugins/configs/ur_config.yaml"
 
-# Valores del YAML de la spec: una clave ausente toma este valor (decisión 2026-10-03).
-# Las `ip` valen None: no hay IP correcta por defecto para un robot real, así que la validación
-# las exige (la del leader solo si es un UR; un leader low-cost de SPEC_005 no tiene IP).
-DEFAULT_PROFILE = "sim"
-DEFAULTS: dict[str, Any] = {
-    "leader": {"type": "ur3e", "ip": None, "rtde_hz": 500, "timeout_ms": 100},
+# Claves que debe tener el YAML (las hojas valen None; solo importa la forma).
+SCHEMA: dict[str, Any] = {
+    "leader": {"type": None, "ip": None, "rtde_hz": None, "timeout_ms": None},
     "follower": {
-        "type": "ur3e",
+        "type": None,
         "ip": None,
         "servo": {
-            "hz": 125,
-            "gain": 300,
-            "lookahead_s": 0.1,
-            "max_joint_speed_deg_s": 60,
-            "target_period_ms": 33,
+            "hz": None,
+            "gain": None,
+            "lookahead_s": None,
+            "max_joint_speed_deg_s": None,
+            "target_period_ms": None,
         },
-        "watchdog": {"hold_ms": 100, "stop_ms": 500},
+        "watchdog": {"hold_ms": None, "stop_ms": None},
     },
-    "start_pose_deg": [0, -90, 90, -90, -90, 0],
-    "start_tolerance_deg": 2,
+    "start_pose_deg": None,
+    "start_tolerance_deg": None,
 }
+# Solo un leader UR necesita IP; un leader de réplica con encoders o servos no la tiene.
+# Su obligatoriedad se comprueba en `_validate`, según `leader.type`.
+CONDITIONAL_KEYS = {"leader.ip"}
 
 
 class ConfigError(ValueError):
@@ -52,7 +56,7 @@ class ConfigError(ValueError):
 @dataclass(frozen=True)
 class LeaderConfig:
     type: str
-    ip: str | None  # None solo para leaders que no son UR (SPEC_005)
+    ip: str | None  # None solo para leaders que no son un UR
     rtde_hz: float
     timeout_s: float
 
@@ -89,16 +93,18 @@ class TeleopConfig:
 
 
 def load_config(path: Path) -> TeleopConfig:
-    raw = _read_yaml(path)
-    resolved = dict(raw)
-    leader_profile, follower_profile = _parse_profile(resolved.pop("profile", DEFAULT_PROFILE))
-    if "leader" in raw:
-        resolved["leader"] = _resolve(raw["leader"], leader_profile)
-    if "follower" in raw:
-        resolved["follower"] = _resolve(raw["follower"], follower_profile)
-    merged = _merge_defaults(resolved, DEFAULTS, "")
-    _validate(merged)
-    return _build(merged)
+    resolved = _read_yaml(path)
+    if "profile" not in resolved:
+        raise ConfigError("profile", f"obligatoria (ver la plantilla {TEMPLATE})")
+    leader_profile, follower_profile = _parse_profile(resolved.pop("profile"))
+    # start_pose_deg/start_tolerance_deg no dependen del perfil: se dejan tal cual.
+    if "leader" in resolved:
+        resolved["leader"] = _resolve(resolved["leader"], leader_profile)
+    if "follower" in resolved:
+        resolved["follower"] = _resolve(resolved["follower"], follower_profile)
+    _check_keys(resolved, SCHEMA, "")
+    _validate(resolved)
+    return _build(resolved)
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -115,8 +121,9 @@ def _parse_profile(profile: Any) -> tuple[str, str]:
     if isinstance(profile, dict):
         if set(profile) != {"leader", "follower"}:
             raise ConfigError("profile", "como diccionario debe tener exactamente leader y follower")
-        return _check_profile("profile.leader", profile["leader"]), _check_profile(
-            "profile.follower", profile["follower"]
+        return (
+            _check_profile("profile.leader", profile["leader"]),
+            _check_profile("profile.follower", profile["follower"]),
         )
     checked = _check_profile("profile", profile)
     return checked, checked
@@ -137,26 +144,26 @@ def _resolve(node: Any, profile: str) -> Any:
     return node
 
 
-def _merge_defaults(user: dict[str, Any], defaults: dict[str, Any], path: str) -> dict[str, Any]:
-    """Completa con DEFAULTS y rechaza lo que no encaja con su forma, para que un YAML mal
-    escrito acabe siempre en un ConfigError con el campo y nunca en un TypeError más adelante."""
-    unknown = sorted(user.keys() - defaults.keys(), key=str)
+def _check_keys(user: dict[str, Any], schema: dict[str, Any], path: str) -> None:
+    """Exige exactamente las claves de SCHEMA con su forma.
+
+    Así un YAML mal escrito acaba siempre en un ConfigError con el campo, nunca en un KeyError
+    o TypeError más adelante.
+    """
+    unknown = sorted(user.keys() - schema.keys(), key=str)
     if unknown:
-        raise ConfigError(f"{path}{unknown[0]}", "clave desconocida en SPEC_003")
-    merged: dict[str, Any] = {}
-    for key, default in defaults.items():
+        raise ConfigError(f"{path}{unknown[0]}", "clave desconocida")
+    for key, sub_schema in schema.items():
         field = f"{path}{key}"
         if key not in user:
-            merged[key] = default
-        elif isinstance(default, dict):
+            if field not in CONDITIONAL_KEYS:
+                raise ConfigError(field, f"obligatoria (ver la plantilla {TEMPLATE})")
+        elif isinstance(sub_schema, dict):
             if not isinstance(user[key], dict):
                 raise ConfigError(field, "debe ser una sección con sus claves")
-            merged[key] = _merge_defaults(user[key], default, f"{field}.")
+            _check_keys(user[key], sub_schema, f"{field}.")
         elif isinstance(user[key], dict):
             raise ConfigError(field, "un valor por perfil debe ser {sim: ..., real: ...} completo")
-        else:
-            merged[key] = user[key]
-    return merged
 
 
 def _validate(c: dict[str, Any]) -> None:
@@ -165,7 +172,7 @@ def _validate(c: dict[str, Any]) -> None:
     _check_type("leader.type", leader["type"])
     _check_type("follower.type", follower["type"])
     if leader["type"] in UR_TYPES:
-        _check_ip("leader.ip", leader["ip"], "obligatoria con leader UR")
+        _check_ip("leader.ip", leader.get("ip"), "obligatoria con un leader UR")
     _check_ip("follower.ip", follower["ip"], "obligatoria")
     _check_positive("leader.rtde_hz", leader["rtde_hz"])
     _check_number("leader.timeout_ms", leader["timeout_ms"])
@@ -234,7 +241,7 @@ def _build(c: dict[str, Any]) -> TeleopConfig:
     return TeleopConfig(
         leader=LeaderConfig(
             type=leader["type"],
-            ip=leader["ip"],
+            ip=leader.get("ip"),
             rtde_hz=leader["rtde_hz"],
             timeout_s=leader["timeout_ms"] / 1000,
         ),

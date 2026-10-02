@@ -1,4 +1,4 @@
-"""F1: carga, resolución de perfiles y validación del YAML compartido (RF-1..7 de SPEC_003)."""
+"""Carga, resolución de perfiles sim/real y validación del YAML compartido por los plugins UR."""
 
 import copy
 import dataclasses
@@ -8,8 +8,8 @@ from typing import Any
 
 import pytest
 import yaml
-
 from ur_core import ConfigError, TeleopConfig, load_config
+from ur_core.config import UR_TYPES
 
 LEADER_SIM_IP = "127.0.0.3"
 LEADER_REAL_IP = "192.168.1.11"
@@ -40,6 +40,26 @@ BASE: dict[str, Any] = {
     "start_tolerance_deg": 2,
 }
 
+# Todas las hojas de BASE: cada una es obligatoria en el YAML.
+LEAF_KEYS = [
+    "profile",
+    "leader.type",
+    "leader.ip",
+    "leader.rtde_hz",
+    "leader.timeout_ms",
+    "follower.type",
+    "follower.ip",
+    "follower.servo.hz",
+    "follower.servo.gain",
+    "follower.servo.lookahead_s",
+    "follower.servo.max_joint_speed_deg_s",
+    "follower.servo.target_period_ms",
+    "follower.watchdog.hold_ms",
+    "follower.watchdog.stop_ms",
+    "start_pose_deg",
+    "start_tolerance_deg",
+]
+
 
 def load(tmp_path: Path, data: Any) -> TeleopConfig:
     path = tmp_path / "ur_config.yaml"
@@ -49,102 +69,6 @@ def load(tmp_path: Path, data: Any) -> TeleopConfig:
 
 def base() -> dict[str, Any]:
     return copy.deepcopy(BASE)
-
-
-# ---------- T1.1: carga y resolución de perfiles (RF-1, 2, 3, 7) ----------
-
-
-@pytest.mark.parametrize(
-    ("profile", "leader_ip", "follower_ip"),
-    [("sim", LEADER_SIM_IP, FOLLOWER_SIM_IP), ("real", LEADER_REAL_IP, FOLLOWER_REAL_IP)],
-)
-def test_single_profile_resolves_both_sides(
-    tmp_path: Path, profile: str, leader_ip: str, follower_ip: str
-) -> None:
-    """RF-1 (CA1.1)."""
-    data = base()
-    data["profile"] = profile
-    config = load(tmp_path, data)
-    assert config.leader.ip == leader_ip
-    assert config.follower.ip == follower_ip
-
-
-def test_mixed_profile_resolves_each_side_with_its_own(tmp_path: Path) -> None:
-    """RF-2 (CA1.2): leader real en freedrive, follower en URSim (fase F4)."""
-    data = base()
-    data["profile"] = {"leader": "real", "follower": "sim"}
-    config = load(tmp_path, data)
-    assert config.leader.ip == LEADER_REAL_IP
-    assert config.follower.ip == FOLLOWER_SIM_IP
-
-
-@pytest.mark.parametrize("profile", ["sim", "real"])
-def test_plain_field_has_same_value_in_both_profiles(tmp_path: Path, profile: str) -> None:
-    """RF-3 (CA1.3)."""
-    data = base()
-    data["profile"] = profile
-    data["follower"]["ip"] = "10.0.0.5"
-    assert load(tmp_path, data).follower.ip == "10.0.0.5"
-
-
-def test_sim_real_form_works_in_nested_fields(tmp_path: Path) -> None:
-    """RF-3: cualquier campo puede escribirse como {sim, real}, también dentro de `servo`."""
-    data = base()
-    data["profile"] = "real"
-    data["follower"]["servo"]["hz"] = {"sim": 125, "real": 500}
-    assert load(tmp_path, data).follower.servo.hz == 500
-
-
-def test_values_are_converted_to_radians_and_seconds(tmp_path: Path) -> None:
-    """RF-7 (CA1.9)."""
-    config = load(tmp_path, base())
-    assert config.start_pose_rad == pytest.approx(
-        (0.0, -math.pi / 2, math.pi / 2, -math.pi / 2, -math.pi / 2, 0.0)
-    )
-    assert config.start_tolerance_rad == pytest.approx(math.radians(2))
-    assert config.leader.timeout_s == pytest.approx(0.1)
-    assert config.follower.servo.max_joint_speed_rad_s == pytest.approx(math.radians(60))
-    assert config.follower.servo.target_period_s == pytest.approx(0.033)
-    assert config.follower.servo.lookahead_s == pytest.approx(0.1)
-    assert config.follower.watchdog.hold_s == pytest.approx(0.1)
-    assert config.follower.watchdog.stop_s == pytest.approx(0.5)
-
-
-def test_config_is_immutable(tmp_path: Path) -> None:
-    """RF-7: las dataclasses no se pueden modificar tras cargar."""
-    config = load(tmp_path, base())
-    assert isinstance(config.start_pose_rad, tuple)
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        config.follower.servo.gain = 1000  # type: ignore[misc]
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        config.leader = config.leader  # type: ignore[misc]
-
-
-def test_missing_keys_take_the_spec_defaults(tmp_path: Path) -> None:
-    """Decisión 2026-10-03: con solo las IPs, el resto toma los valores del YAML de la spec."""
-    config = load(
-        tmp_path,
-        {"leader": {"ip": LEADER_SIM_IP}, "follower": {"ip": FOLLOWER_SIM_IP}},
-    )
-    assert config.leader.type == "ur3e"
-    assert config.leader.ip == LEADER_SIM_IP
-    assert config.leader.rtde_hz == 500
-    assert config.leader.timeout_s == pytest.approx(0.1)
-    assert config.follower.type == "ur3e"
-    assert config.follower.servo.hz == 125
-    assert config.follower.servo.gain == 300
-    assert config.follower.servo.lookahead_s == pytest.approx(0.1)
-    assert config.follower.servo.max_joint_speed_rad_s == pytest.approx(math.radians(60))
-    assert config.follower.servo.target_period_s == pytest.approx(0.033)
-    assert config.follower.watchdog.hold_s == pytest.approx(0.1)
-    assert config.follower.watchdog.stop_s == pytest.approx(0.5)
-    assert config.start_pose_rad == pytest.approx(
-        tuple(math.radians(d) for d in (0, -90, 90, -90, -90, 0))
-    )
-    assert config.start_tolerance_rad == pytest.approx(math.radians(2))
-
-
-# ---------- T1.2: validaciones (RF-4, 5, 6) ----------
 
 
 def set_path(data: dict[str, Any], dotted: str, value: Any) -> None:
@@ -161,15 +85,121 @@ def remove_path(data: dict[str, Any], dotted: str) -> None:
     data.pop(last)
 
 
+# ---------- Carga y resolución de perfiles ----------
+
+
+@pytest.mark.parametrize(
+    ("profile", "leader_ip", "follower_ip"),
+    [("sim", LEADER_SIM_IP, FOLLOWER_SIM_IP), ("real", LEADER_REAL_IP, FOLLOWER_REAL_IP)],
+)
+def test_single_profile_resolves_both_sides(
+    tmp_path: Path, profile: str, leader_ip: str, follower_ip: str
+) -> None:
+    data = base()
+    data["profile"] = profile
+    config = load(tmp_path, data)
+    assert config.leader.ip == leader_ip
+    assert config.follower.ip == follower_ip
+
+
+def test_mixed_profile_resolves_each_side_with_its_own(tmp_path: Path) -> None:
+    """Leader real en freedrive con el follower en URSim."""
+    data = base()
+    data["profile"] = {"leader": "real", "follower": "sim"}
+    config = load(tmp_path, data)
+    assert config.leader.ip == LEADER_REAL_IP
+    assert config.follower.ip == FOLLOWER_SIM_IP
+
+
+@pytest.mark.parametrize("profile", ["sim", "real"])
+def test_plain_field_has_same_value_in_both_profiles(tmp_path: Path, profile: str) -> None:
+    data = base()
+    data["profile"] = profile
+    data["follower"]["ip"] = "10.0.0.5"
+    assert load(tmp_path, data).follower.ip == "10.0.0.5"
+
+
+def test_sim_real_form_works_in_nested_fields(tmp_path: Path) -> None:
+    data = base()
+    data["profile"] = "real"
+    data["follower"]["servo"]["hz"] = {"sim": 125, "real": 500}
+    assert load(tmp_path, data).follower.servo.hz == 500
+
+
+def test_values_are_converted_to_radians_and_seconds(tmp_path: Path) -> None:
+    config = load(tmp_path, base())
+    assert config.start_pose_rad == pytest.approx(
+        (0.0, -math.pi / 2, math.pi / 2, -math.pi / 2, -math.pi / 2, 0.0)
+    )
+    assert config.start_tolerance_rad == pytest.approx(math.radians(2))
+    assert config.leader.rtde_hz == 500
+    assert config.leader.timeout_s == pytest.approx(0.1)
+    assert config.follower.servo.hz == 125
+    assert config.follower.servo.gain == 300
+    assert config.follower.servo.max_joint_speed_rad_s == pytest.approx(math.radians(60))
+    assert config.follower.servo.target_period_s == pytest.approx(0.033)
+    assert config.follower.servo.lookahead_s == pytest.approx(0.1)
+    assert config.follower.watchdog.hold_s == pytest.approx(0.1)
+    assert config.follower.watchdog.stop_s == pytest.approx(0.5)
+
+
+def test_config_is_immutable(tmp_path: Path) -> None:
+    config = load(tmp_path, base())
+    assert isinstance(config.start_pose_rad, tuple)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        config.follower.servo.gain = 1000  # type: ignore[misc]
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        config.leader = config.leader  # type: ignore[misc]
+
+
+@pytest.mark.parametrize("model", UR_TYPES)
+def test_every_ur_model_is_accepted(tmp_path: Path, model: str) -> None:
+    data = base()
+    data["leader"]["type"] = model
+    data["follower"]["type"] = model
+    config = load(tmp_path, data)
+    assert config.leader.type == model
+    assert config.follower.type == model
+
+
+def test_reference_template_loads() -> None:
+    """La plantilla que se pasa a `--robot.config_path`/`--teleop.config_path`."""
+    template = Path(__file__).parents[2] / "configs" / "ur_config.yaml"
+    config = load_config(template)
+    assert config.leader.ip == LEADER_SIM_IP
+    assert config.follower.ip == FOLLOWER_SIM_IP
+
+
+# ---------- Validaciones ----------
+
+
+@pytest.mark.parametrize("dotted", LEAF_KEYS)
+def test_every_key_is_required(tmp_path: Path, dotted: str) -> None:
+    """Sin valores por defecto: el YAML es la única fuente de la configuración."""
+    data = base()
+    remove_path(data, dotted)
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, data)
+    assert exc.value.field == dotted
+
+
+def test_ur_leader_ip_error_mentions_ur(tmp_path: Path) -> None:
+    """La IP del leader solo se exige si el leader es un UR (una réplica con encoders no tiene)."""
+    data = base()
+    remove_path(data, "leader.ip")
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, data)
+    assert "UR" in exc.value.reason
+
+
 @pytest.mark.parametrize("side", ["leader", "follower"])
 def test_unknown_type_lists_valid_types(tmp_path: Path, side: str) -> None:
-    """RF-4 (CA1.4)."""
     data = base()
-    data[side]["type"] = "ur10e"
+    data[side]["type"] = "ur99"
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, data)
     assert exc.value.field == f"{side}.type"
-    assert "ur3e" in exc.value.reason and "ur5e" in exc.value.reason
+    assert all(model in exc.value.reason for model in UR_TYPES)
 
 
 @pytest.mark.parametrize(
@@ -182,7 +212,7 @@ def test_unknown_type_lists_valid_types(tmp_path: Path, side: str) -> None:
     ],
 )
 def test_unknown_key_is_rejected(tmp_path: Path, dotted: str, value: Any) -> None:
-    """RF-5: una clave fuera de la spec (p. ej. de SPEC_004/005) no se ignora en silencio."""
+    """Una clave que el código no usa no se ignora en silencio."""
     data = base()
     set_path(data, dotted, value)
     with pytest.raises(ConfigError) as exc:
@@ -212,7 +242,6 @@ def test_unknown_key_is_rejected(tmp_path: Path, dotted: str, value: Any) -> Non
     ],
 )
 def test_out_of_range_value_is_rejected(tmp_path: Path, dotted: str, value: Any) -> None:
-    """RF-6 (CA1.8)."""
     data = base()
     set_path(data, dotted, value)
     with pytest.raises(ConfigError) as exc:
@@ -231,28 +260,9 @@ def test_out_of_range_value_is_rejected(tmp_path: Path, dotted: str, value: Any)
     ],
 )
 def test_range_limits_are_inclusive(tmp_path: Path, dotted: str, value: Any) -> None:
-    """RF-6: los bordes de los intervalos cerrados son válidos."""
     data = base()
     set_path(data, dotted, value)
     load(tmp_path, data)
-
-
-def test_follower_ip_is_required(tmp_path: Path) -> None:
-    data = base()
-    remove_path(data, "follower.ip")
-    with pytest.raises(ConfigError) as exc:
-        load(tmp_path, data)
-    assert exc.value.field == "follower.ip"
-
-
-def test_ur_leader_requires_ip(tmp_path: Path) -> None:
-    """La IP del leader solo es obligatoria si es un UR (un leader low-cost de SPEC_005 no tiene)."""
-    data = base()
-    remove_path(data, "leader.ip")
-    with pytest.raises(ConfigError) as exc:
-        load(tmp_path, data)
-    assert exc.value.field == "leader.ip"
-    assert "UR" in exc.value.reason
 
 
 @pytest.mark.parametrize("side", ["leader", "follower"])
@@ -292,14 +302,6 @@ def test_wrong_shape_raises_config_error(tmp_path: Path, dotted: str, value: Any
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, data)
     assert exc.value.field == dotted
-
-
-def test_reference_yaml_loads() -> None:
-    """T1.3: el YAML de referencia que se pasa a `--robot.config_path`/`--teleop.config_path`."""
-    reference = Path(__file__).parents[2] / "configs" / "ur_config.yaml"
-    config = load_config(reference)
-    assert config.leader.ip == LEADER_SIM_IP
-    assert config.follower.ip == FOLLOWER_SIM_IP
 
 
 @pytest.mark.parametrize("content", ["", "- 1\n- 2\n", "solo texto\n"])
