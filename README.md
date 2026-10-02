@@ -15,7 +15,7 @@ Instala la librería `lerobot` completa (`src/`, sin cambios salvo lo indicado a
 | `plugins/tests/` | Suite de los plugins |
 | `src/lerobot/common/train_utils.py` | `lerobot-train` no se cae en Windows al crear `checkpoints/last` (usa un *junction* si no se puede crear el symlink) |
 
-Para ver exactamente qué difiere del original en código: `git diff main...spec/003-ur-teleop --stat -- src plugins tests` (`main` es una copia sin cambios del upstream).
+Para ver exactamente qué difiere del original en código: `git diff main...lerobot/ur-plugin --stat -- src plugins tests` (`main` es una copia sin cambios del upstream).
 
 ## Instalación
 
@@ -28,7 +28,7 @@ conda install "ffmpeg=8.*" -c conda-forge
 
 git clone https://github.com/blv-o/lerobot.git
 cd lerobot
-git switch spec/003-ur-teleop
+git switch lerobot/ur-plugin
 python -m pip install -e ".[core_scripts,training,feetech]"
 python -m pip install -e plugins/ur_teleop_core -e plugins/lerobot_robot_ur_follower -e plugins/lerobot_teleoperator_ur_leader
 ```
@@ -47,7 +47,7 @@ pytest tests                      # suite original de LeRobot
 
 - `main`: copia del upstream, solo como referencia para comparar y traer actualizaciones.
 - `fix/windows-last-checkpoint`: arreglo de Windows + retirada de lo que no aplica a este proyecto. Base de las demás ramas.
-- `spec/003-ur-teleop`: teleoperación UR leader/follower (en desarrollo).
+- `lerobot/ur-plugin` (rama por defecto): fork completo con los plugins UR; aquí llega el trabajo de cada spec.
 
 ## Licencia
 
