@@ -14,7 +14,7 @@ import pytest
 
 @pytest.mark.parametrize(
     "dist_name",
-    ["ur_teleop_core", "lerobot_robot_ur_follower", "lerobot_teleoperator_ur_leader"],
+    ["ur_core", "lerobot_robot_ur_follower", "lerobot_teleoperator_ur_leader"],
 )
 def test_distribution_is_installed_and_importable(dist_name: str) -> None:
     assert importlib.metadata.distribution(dist_name).metadata["Name"] == dist_name
@@ -23,8 +23,8 @@ def test_distribution_is_installed_and_importable(dist_name: str) -> None:
 
 def test_core_does_not_import_lerobot() -> None:
     """Capa anticorrupción (principio 1): solo los plugins hablan con LeRobot."""
-    import ur_teleop_core
+    import ur_core
 
-    for path in Path(ur_teleop_core.__path__[0]).rglob("*.py"):
+    for path in Path(ur_core.__path__[0]).rglob("*.py"):
         text = path.read_text(encoding="utf-8")
         assert "import lerobot" not in text and "from lerobot" not in text, path

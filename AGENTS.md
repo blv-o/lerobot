@@ -40,7 +40,7 @@ ruff check . && ruff format --check .      # Lint + format (config in pyproject.
 
 ## Repository Structure (outside `src/`)
 
-- **`plugins/`** — Own code of this fork (UR3e teleop over RTDE): `lerobot_robot_ur_follower`, `lerobot_teleoperator_ur_leader`, `ur_teleop_core`, URSim compose file and their tests. Each package has its own `pyproject.toml`.
+- **`plugins/`** — Own code of this fork (UR3e teleop over RTDE): `lerobot_robot_ur_follower`, `lerobot_teleoperator_ur_leader`, `ur_core`, URSim compose file and their tests. Each package has its own `pyproject.toml`.
 - **`tests/`** — Upstream pytest suite organized by module. Fixtures in `tests/fixtures/`, mocks in `tests/mocks/`. Hardware tests use skip decorators from `tests/utils.py`.
 - **Root files**: `pyproject.toml` (single source of truth for deps, build, tool config), `README.md` (what this fork is and how to install it).
 - Upstream `docs/`, `examples/`, `docker/`, CI and community files were removed on purpose; see them in https://github.com/huggingface/lerobot.

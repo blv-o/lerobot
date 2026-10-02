@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 name = "lerobot_teleoperator_ur_leader"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["lerobot", "ur_teleop_core"]
+dependencies = ["lerobot", "ur_core"]
 
 [tool.setuptools]
 packages = ["lerobot_teleoperator_ur_leader"]

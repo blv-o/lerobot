@@ -8,7 +8,7 @@ _PENDING = "Pendiente de la fase F3 de SPEC_003"
 
 
 class UrFollower(Robot):
-    """Adaptador entre LeRobot y `ur_teleop_core.URFollower` (se completa en F3)."""
+    """Adaptador entre LeRobot y `ur_core.UrFollowerCore` (se completa en F3)."""
 
     config_class = UrFollowerConfig
     name = "ur_follower"
