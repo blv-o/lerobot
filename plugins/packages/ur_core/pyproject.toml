@@ -16,3 +16,7 @@ dependencies = [
 
 [tool.setuptools]
 packages = ["ur_core"]
+
+[tool.setuptools.package-data]
+# El URScript del follower se lee en tiempo de ejecución: debe viajar con el paquete.
+ur_core = ["*.script"]

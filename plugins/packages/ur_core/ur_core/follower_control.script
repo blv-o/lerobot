@@ -1,0 +1,56 @@
+# ------------------------------------------------------------------
+#  follower_control.script  (URScript, plantilla)
+#
+#  Programa que corre en el UR follower. El PC lo sube por la interfaz
+#  secundaria (30002) y lo alimenta por RTDE:
+#    input_double_register_0..5  <- consigna articular (rad)
+#    input_int_register_0        <- enable (0/1) y alimentación del watchdog
+#    output_int_register_0       -> heartbeat (contador)
+#
+#  Ciclo de vida: mantener la pose hasta enable=1, seguir la consigna
+#  mientras enable=1 y, cuando vuelve a 0, stopj y fin. No se re-arma:
+#  tras una parada se relanza desde el PC.
+#
+#  Los parámetros entre dobles guiones bajos los sustituye
+#  render_follower_script() con la config.
+# ------------------------------------------------------------------
+
+def follower_control():
+	textmsg("follower_control: iniciando")
+
+	# Si el PC deja de escribir el registro enable (proceso o PC muerto),
+	# el controlador para el programa por sí solo.
+	rtde_set_watchdog("input_int_register_0", __WATCHDOG_HZ__, "stop")
+
+	hb = 0
+	write_output_integer_register(0, hb)
+
+	# Mantener la pose leída UNA vez: releerla en cada ciclo la dejaría derivar.
+	q = get_actual_joint_positions()
+	while read_input_integer_register(0) == 0:
+		servoj(q, 0, 0, __SERVO_T_S__, __LOOKAHEAD_S__, __GAIN__)
+		hb = hb + 1
+		write_output_integer_register(0, hb)
+	end
+
+	textmsg("follower_control: habilitado")
+
+	while read_input_integer_register(0) == 1:
+		tq = [read_input_float_register(0),
+		      read_input_float_register(1),
+		      read_input_float_register(2),
+		      read_input_float_register(3),
+		      read_input_float_register(4),
+		      read_input_float_register(5)]
+		servoj(tq, 0, 0, __SERVO_T_S__, __LOOKAHEAD_S__, __GAIN__)
+		hb = hb + 1
+		if hb > 1000000:
+			hb = 0
+		end
+		write_output_integer_register(0, hb)
+	end
+
+	# Deceleración articular de la parada, en rad/s^2.
+	stopj(2.0)
+	textmsg("follower_control: parado")
+end
