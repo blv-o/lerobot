@@ -127,8 +127,13 @@ class SharedState:
     """Memoria compartida padre ↔ hijo, con un único escritor por campo.
 
     Padre: consigna (+ secuencia + t_ns) y petición de parada. Hijo: posición medida, estado,
-    motivo y estadísticas del periodo. Un solo `Lock` para todo: las secciones críticas son
-    copias de unos pocos números, así que la espera es despreciable frente al ciclo.
+    motivo y estadísticas del periodo. Un solo `Lock` para todo.
+
+    El hijo nunca espera al `Lock` en su ciclo (métodos `try_*`): con la CPU saturada (p. ej.
+    codificando vídeo) el SO puede dejar al padre sin turno justo con el `Lock` cogido, y el
+    bucle se quedaría decenas de ms sin escribir al robot. Si está ocupado, el hijo usa la
+    consigna del ciclo anterior y publica la posición en el siguiente. Las transiciones de
+    estado sí esperan: son pocas por sesión y el padre debe verlas siempre.
     """
 
     def __init__(self, ctx: BaseContext | None = None) -> None:
@@ -150,14 +155,26 @@ class SharedState:
             self._target_seq.value += 1
             self._target_t_ns.value = t_ns
 
-    def read_target(self) -> tuple[int, int, list[float]]:
-        """(secuencia, t_ns, consigna); secuencia 0 = todavía no ha llegado ninguna."""
-        with self._lock:
-            return self._target_seq.value, self._target_t_ns.value, list(self._target)
+    def try_read_target(self) -> tuple[int, int, list[float]] | None:
+        """(secuencia, t_ns, consigna), o None si el `Lock` está ocupado.
 
-    def write_measured(self, q_rad: Sequence[float]) -> None:
-        with self._lock:
+        Secuencia 0 = todavía no ha llegado ninguna consigna.
+        """
+        if not self._lock.acquire(block=False):
+            return None
+        try:
+            return self._target_seq.value, self._target_t_ns.value, list(self._target)
+        finally:
+            self._lock.release()
+
+    def try_write_measured(self, q_rad: Sequence[float]) -> bool:
+        if not self._lock.acquire(block=False):
+            return False
+        try:
             self._measured[:] = list(q_rad)
+            return True
+        finally:
+            self._lock.release()
 
     def read_measured(self) -> list[float]:
         with self._lock:
@@ -173,22 +190,26 @@ class SharedState:
         with self._lock:
             return FollowerState(self._state.value), self._reason.value.decode("utf-8", errors="ignore")
 
-    def write_period_stats(self, p50_s: float, p99_s: float, max_s: float) -> None:
-        with self._lock:
+    def try_write_period_stats(self, p50_s: float, p99_s: float, max_s: float) -> bool:
+        if not self._lock.acquire(block=False):
+            return False
+        try:
             self._period_stats_s[:] = [p50_s, p99_s, max_s]
+            return True
+        finally:
+            self._lock.release()
 
     def read_period_stats(self) -> tuple[float, float, float]:
         with self._lock:
             p50_s, p99_s, max_s = self._period_stats_s
             return p50_s, p99_s, max_s
 
+    # Un único byte que solo pasa de 0 a 1: se lee y escribe sin `Lock`.
     def request_stop(self) -> None:
-        with self._lock:
-            self._stop_requested.value = 1
+        self._stop_requested.value = 1
 
     def stop_requested(self) -> bool:
-        with self._lock:
-            return bool(self._stop_requested.value)
+        return bool(self._stop_requested.value)
 
 
 class StreamingLoop:
@@ -224,6 +245,7 @@ class StreamingLoop:
         self._script_sent = False
         self._armed_q: list[float] = []
         self._last_cmd: list[float] = []
+        self._last_target_read: tuple[int, int, list[float]] = (0, 0, [])
         self._seg_seq = 0
         self._seg_start: list[float] = []
         self._seg_target: list[float] = []
@@ -281,7 +303,7 @@ class StreamingLoop:
         pkt = self._receive()
         self._check_ready(pkt)
         self._armed_q = list(pkt.actual_q)
-        self._shared.write_measured(self._armed_q)
+        self._shared.try_write_measured(self._armed_q)
         # Consigna = pose actual y deshabilitado ANTES de subir el script: nunca hay salto.
         self._write(self._armed_q, enable=0)
         self._upload_script()
@@ -294,7 +316,7 @@ class StreamingLoop:
                     f"el programa del follower no arrancó: heartbeat sin cambios en {ARM_TIMEOUT_S} s"
                 )
             pkt = self._receive()
-            self._shared.write_measured(pkt.actual_q)
+            self._shared.try_write_measured(pkt.actual_q)
             self._write(self._armed_q, enable=0)  # alimenta el watchdog
         self._hb = pkt.output_int_register_0
         self._hb_change_ns = self._clock()
@@ -348,12 +370,15 @@ class StreamingLoop:
         pkt = self._receive()
         now_ns = self._clock()
         self._record_period(now_ns)
-        self._shared.write_measured(pkt.actual_q)
+        self._shared.try_write_measured(pkt.actual_q)
         reason = self._robot_fault(pkt, now_ns) or self._external_stop()
         if reason:
             self._transition(FollowerState.STOP, reason)
             return
-        seq, t_ns, target = self._shared.read_target()
+        latest = self._shared.try_read_target()
+        if latest is not None:
+            self._last_target_read = latest
+        seq, t_ns, target = self._last_target_read
         if self._state == FollowerState.WAIT:
             self._wait_cycle(pkt, seq, t_ns, target, now_ns)
         else:
@@ -466,7 +491,7 @@ class StreamingLoop:
         ordered = sorted(self._periods_ns)
         p50_ns = ordered[len(ordered) // 2]
         p99_ns = ordered[min(len(ordered) - 1, int(0.99 * len(ordered)))]
-        self._shared.write_period_stats(p50_ns / 1e9, p99_ns / 1e9, self._max_period_ns / 1e9)
+        self._shared.try_write_period_stats(p50_ns / 1e9, p99_ns / 1e9, self._max_period_ns / 1e9)
 
 
 def streaming_main(follower: FollowerConfig, start_tolerance_rad: float, shared: SharedState) -> None:

@@ -289,7 +289,7 @@ def test_stop_when_targets_stop_arriving_for_stop_time() -> None:
     rig = Rig(packets(200), actions={5: send_at(q1)}).serve()
     assert rig.state == FollowerState.STOP
     assert "sin consignas" in rig.reason
-    _, t_target_ns, _ = rig.shared.read_target()  # la edad se cuenta desde que se envió
+    _, t_target_ns, _ = rig.shared.try_read_target()  # la edad se cuenta desde que se envió
     t_stop_ns = next(t for t, s, _ in rig.loop.events if s == FollowerState.STOP)
     stop_after_s = (t_stop_ns - t_target_ns) / 1e9
     assert FOLLOWER.watchdog.stop_s <= stop_after_s <= FOLLOWER.watchdog.stop_s + 2 / HZ
@@ -414,9 +414,39 @@ class CountingSharedState(SharedState):
         super().__init__()
         self.stats_writes = 0
 
-    def write_period_stats(self, p50_s: float, p99_s: float, max_s: float) -> None:
+    def try_write_period_stats(self, p50_s: float, p99_s: float, max_s: float) -> bool:
         self.stats_writes += 1
-        super().write_period_stats(p50_s, p99_s, max_s)
+        return super().try_write_period_stats(p50_s, p99_s, max_s)
+
+
+@pytest.mark.timeout(10)
+def test_loop_never_waits_for_a_lock_held_by_the_parent() -> None:
+    """Con la CPU saturada (p. ej. codificando vídeo) el SO puede dejar al padre sin turno justo
+    con el Lock cogido: el bucle no puede quedarse esperándolo, tiene que escribir cada ciclo."""
+    near = offset(START_Q_RAD, 0, 0.005)
+    later = offset(START_Q_RAD, 0, 0.01)
+    lock = None
+
+    def parent_preempted_holding_lock(rig: Rig) -> None:
+        nonlocal lock
+        lock = rig.shared._lock
+        assert lock.acquire(block=False)
+
+    def parent_resumes(rig: Rig) -> None:
+        lock.release()
+
+    actions = {
+        5: send_at(near),
+        8: send_at(near),
+        10: parent_preempted_holding_lock,
+        18: parent_resumes,  # 64 ms: menos que hold_ms (las transiciones de estado sí esperan)
+        19: send_at(later),
+    }
+    rig = Rig(packets(40), actions=actions).serve()
+    # Un comando por paquete, también mientras el padre tenía el Lock.
+    assert len(rig.rtde.written_q()) == 40  # exactamente uno por paquete recibido
+    assert rig.rtde.written_q()[-1] == pytest.approx(later)
+    assert "stream" in rig.reason
 
 
 def test_period_stats_published_once_per_second_also_after_the_window_fills() -> None:
@@ -450,14 +480,14 @@ def test_new_target_is_detected_by_sequence_not_by_timestamp() -> None:
     """Dos consignas con el mismo t_ns (llegan entre dos paquetes) cuentan las dos."""
     shared = SharedState()
     shared.write_target([0.1] * 6, 5)
-    seq1, _, _ = shared.read_target()
+    seq1, _, _ = shared.try_read_target()
     shared.write_target([0.2] * 6, 5)
-    seq2, t_ns, q = shared.read_target()
+    seq2, t_ns, q = shared.try_read_target()
     assert seq2 == seq1 + 1 and t_ns == 5 and q == pytest.approx([0.2] * 6)
 
 
 def _child_writes(shared: SharedState) -> None:
-    shared.write_measured([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+    shared.try_write_measured([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
     shared.publish_state(FollowerState.STOP, "motivo con tildes: parada pedida ñ")
 
 
