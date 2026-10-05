@@ -3,9 +3,10 @@
     pytest plugins/tests -m timing -s
 
 Necesita el follower preparado como en los tests `ursim`. 60 s por escenario: a `servo.hz` 125 y
-500, sin carga y con carga de vídeo. La carga son dos procesos que codifican fotogramas 640×480 a
-30 fps con libsvtav1 y los mismos ajustes que `lerobot-record` por defecto (preset 12, crf 30,
-g 2): lo que hace el PC mientras graba con dos cámaras.
+500, sin carga y con carga de vídeo. La carga es la de `lerobot-record` con codificación en
+directo (`--dataset.streaming_encoding=true --dataset.encoder_threads=2`): un hilo en el mismo
+proceso que usa el follower, codificando una cámara 640×480 a 30 fps con PyAV (ffmpeg) y las
+opciones de códec de LeRobot. El bucle de los joints corre en su propio proceso.
 
 El periodo es el tiempo entre paquetes RTDE vistos por el bucle. `status()` da p50/p99 de una
 ventana deslizante de 10 s y el máximo de toda la sesión; aquí se exige el peor p99 de todas
@@ -18,10 +19,9 @@ es decir, en el reenvío de Docker/WSL. Ese tramo no existe con un UR real por E
 """
 
 import dataclasses
-import multiprocessing
+import threading
 import time
 from collections.abc import Iterator
-from multiprocessing.synchronize import Event
 from pathlib import Path
 
 import pytest
@@ -31,34 +31,36 @@ from ur_core.clock import now_ns
 CONFIG = load_config(Path(__file__).parents[2] / "configs" / "ur_config.yaml")
 DURATION_S = 60.0
 SEND_HZ = 30
-VIDEO_PROCESSES = 2
 VIDEO_FPS = 30
 VIDEO_SIZE = (640, 480)
+ENCODER_THREADS = 2  # el valor que recomienda lerobot-record para la codificación en directo
 # servo.hz → (p99 máximo, máximo), en s.
 LIMITS_S = {125: (0.010, 0.016), 500: (0.0025, 0.004)}
 
 pytestmark = pytest.mark.timing
 
 
-def _encode_video(stop: Event) -> None:
-    """Codifica fotogramas de ruido (el peor caso para el codificador) al ritmo de una cámara."""
+def _encode_video(stop: threading.Event, frames_encoded: list[int]) -> None:
+    """Codifica fotogramas de ruido (el peor caso para el códec) al ritmo de una cámara."""
     import av
     import numpy as np
 
+    from lerobot.configs.video import VideoEncoderConfig
+
+    encoder = VideoEncoderConfig()
     width, height = VIDEO_SIZE
-    codec = av.CodecContext.create("libsvtav1", "w")
-    codec.width, codec.height, codec.pix_fmt = width, height, "yuv420p"
+    codec = av.CodecContext.create(encoder.vcodec, "w")
+    codec.width, codec.height, codec.pix_fmt = width, height, encoder.pix_fmt
     codec.framerate = VIDEO_FPS
-    codec.options = {"preset": "12", "crf": "30", "g": "2"}
+    codec.options = encoder.get_codec_options(ENCODER_THREADS, as_strings=True)
     rng = np.random.default_rng(0)
     frames = [rng.integers(0, 256, (height, width, 3), dtype=np.uint8) for _ in range(VIDEO_FPS)]
     period_ns = round(1e9 / VIDEO_FPS)
     next_ns = now_ns()
-    i = 0
     while not stop.is_set():
-        frame = av.VideoFrame.from_ndarray(frames[i % len(frames)], format="rgb24").reformat(format="yuv420p")
-        codec.encode(frame)  # los paquetes se descartan: solo interesa la carga
-        i += 1
+        image = frames[frames_encoded[0] % len(frames)]
+        codec.encode(av.VideoFrame.from_ndarray(image, format="rgb24").reformat(format=encoder.pix_fmt))
+        frames_encoded[0] += 1
         next_ns += period_ns
         time.sleep(max(0.0, (next_ns - now_ns()) / 1e9))
 
@@ -68,17 +70,21 @@ def video_load(request: pytest.FixtureRequest) -> Iterator[None]:
     if not request.param:
         yield
         return
-    ctx = multiprocessing.get_context("spawn")
-    stop = ctx.Event()
-    workers = [ctx.Process(target=_encode_video, args=(stop,), daemon=True) for _ in range(VIDEO_PROCESSES)]
-    for worker in workers:
-        worker.start()
-    time.sleep(2.0)  # que los codificadores estén en régimen antes de medir
-    assert all(worker.is_alive() for worker in workers), "la carga de vídeo no arrancó"
+    stop = threading.Event()
+    frames_encoded = [0]
+    worker = threading.Thread(target=_encode_video, args=(stop, frames_encoded), daemon=True)
+    worker.start()
+    # svtav1 tarda unos segundos en inicializarse: medir solo con el códec ya codificando.
+    deadline_ns = now_ns() + 30_000_000_000
+    while frames_encoded[0] < VIDEO_FPS:
+        assert now_ns() < deadline_ns, "la carga de vídeo no arrancó"
+        time.sleep(0.1)
+    t0_ns, frames0 = now_ns(), frames_encoded[0]
     yield
+    fps = (frames_encoded[0] - frames0) / ((now_ns() - t0_ns) / 1e9)
     stop.set()
-    for worker in workers:
-        worker.join(timeout=10)
+    worker.join(timeout=10)
+    print(f"vídeo codificado a {fps:.1f} fps")
 
 
 @pytest.mark.parametrize("video_load", [False, True], ids=["sin_video", "con_video"], indirect=True)
