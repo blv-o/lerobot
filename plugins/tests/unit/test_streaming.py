@@ -437,7 +437,7 @@ def test_measured_pose_and_period_stats_are_published() -> None:
     )
 
 
-def test_every_transition_is_recorded_with_monotonic_ns() -> None:
+def test_every_transition_is_recorded_with_ns_timestamps() -> None:
     near = offset(START_Q_RAD, 0, 0.005)
     rig = Rig(packets(200), actions={5: send_at(near)}).serve()
     assert rig.states() == [FollowerState.WAIT, FollowerState.RUN, FollowerState.HOLD, FollowerState.STOP]

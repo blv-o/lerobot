@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from rtde.rtde import RTDEException
+from ur_core.clock import now_ns
 
 ROBOT_RUNNING = 7
 SAFETY_NORMAL = 1
@@ -136,7 +137,7 @@ class FakeRTDE:
     def send(self, input_data: SimpleNamespace) -> bool:
         assert self.started, "send() antes de send_start(): el cliente real lo descartaría"
         names = self._input_names[input_data.recipe_id]
-        t_ns = self._clock() if self._clock else time.monotonic_ns()
+        t_ns = self._clock() if self._clock else now_ns()
         self.sent.append((t_ns, {name: getattr(input_data, name) for name in names}))
         return True
 

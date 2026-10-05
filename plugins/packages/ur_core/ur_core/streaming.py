@@ -12,7 +12,6 @@ Dashboard, motivo publicado. Es una segunda capa: la seguridad real es la de Pol
 import logging
 import math
 import multiprocessing
-import time
 from collections import deque
 from collections.abc import Callable, Sequence
 from enum import IntEnum
@@ -22,6 +21,7 @@ from typing import Any, Protocol
 import rtde.rtde as rtde
 from rtde.rtde import RTDEException
 
+from ur_core.clock import now_ns
 from ur_core.config import N_JOINTS, FollowerConfig
 from ur_core.dashboard import DashboardClient
 from ur_core.follower_script import render_follower_script
@@ -202,7 +202,7 @@ class StreamingLoop:
         rtde: RtdeConnection,
         dashboard: Dashboard,
         send_script: Callable[[str, str], None],
-        clock: Callable[[], int] = time.monotonic_ns,
+        clock: Callable[[], int] = now_ns,
         parent_alive: Callable[[], bool] = lambda: True,
     ) -> None:
         self._cfg = follower

@@ -21,6 +21,7 @@ from fakes import (
     endless_packets,
     packets,
 )
+from ur_core.clock import now_ns
 from ur_core.config import UR_TYPES, FollowerConfig, ServoConfig, TeleopConfig, UrLeaderConfig, WatchdogConfig
 from ur_core.follower import (
     FOLLOWERS,
@@ -184,9 +185,9 @@ def test_send_joints_before_connect_raises() -> None:
 def test_send_joints_is_non_blocking_and_reaches_the_robot(rig: Rig) -> None:
     core = UrFollowerCore(CONFIG, launch=rig.launch)
     core.connect()
-    t0_ns = time.monotonic_ns()
+    t0_ns = now_ns()
     core.send_joints(NEAR)
-    assert time.monotonic_ns() - t0_ns < 1_000_000  # < 1 ms
+    assert now_ns() - t0_ns < 1_000_000  # < 1 ms
     wait_for(core, FollowerState.RUN)
     core.disconnect()
     assert 1 in rig.rtde.written_enable()
