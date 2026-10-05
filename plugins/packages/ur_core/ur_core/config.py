@@ -22,6 +22,8 @@ DIRECTIONS = ("normal", "invertido")
 GAIN_RANGE = (100, 2000)
 LOOKAHEAD_RANGE_S = (0.03, 0.2)
 N_JOINTS = 6
+# Orden del controlador UR (el mismo que `actual_q`), usado en todo el paquete.
+JOINT_NAMES = ("base", "shoulder", "elbow", "wrist_1", "wrist_2", "wrist_3")
 TEMPLATE = "plugins/configs/ur_config.yaml"
 
 # Claves que debe tener el YAML (las hojas valen None; solo importa la forma).
