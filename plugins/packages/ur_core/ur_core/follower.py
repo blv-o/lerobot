@@ -162,7 +162,7 @@ class UrFollowerCore:
         shared = SharedState()
         worker = self._launch(self._config.follower, self._config.start_tolerance_rad, shared)
         self._shared, self._worker = shared, worker
-        deadline = time.monotonic() + ARM_TIMEOUT_S + CONNECT_MARGIN_S
+        deadline_ns = time.monotonic_ns() + round((ARM_TIMEOUT_S + CONNECT_MARGIN_S) * 1e9)
         while True:
             alive = worker.is_alive()  # antes de leer el estado: si murió, el STOP ya está publicado
             state, reason = shared.read_state()
@@ -174,7 +174,7 @@ class UrFollowerCore:
             if not alive:
                 self._abort()
                 raise FollowerStartError("el proceso del follower terminó sin armar ni publicar el motivo")
-            if time.monotonic() > deadline:
+            if time.monotonic_ns() > deadline_ns:
                 self._abort()
                 raise FollowerStartError(
                     f"el follower no quedó armado en {ARM_TIMEOUT_S + CONNECT_MARGIN_S} s; proceso terminado"

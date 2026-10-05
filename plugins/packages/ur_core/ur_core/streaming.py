@@ -232,7 +232,8 @@ class StreamingLoop:
         self._last_rx_ns: int | None = None
         self._periods_ns: deque[int] = deque(maxlen=round(PERIOD_WINDOW_S * follower.servo.hz))
         self._max_period_ns = 0
-        self._stats_every = max(1, round(follower.servo.hz))
+        self._stats_every = max(1, round(follower.servo.hz))  # una vez por segundo
+        self._cycles = 0
 
     # --- ciclo de vida ------------------------------------------------------------------
     def serve(self) -> None:
@@ -244,6 +245,11 @@ class StreamingLoop:
         except (FollowerStartError, _StreamLostError) as exc:
             log.error("follower: %s", exc)
             self._transition(FollowerState.STOP, str(exc))
+        except KeyboardInterrupt:
+            # Ctrl+C también llega al proceso hijo (misma consola en Windows, mismo grupo de
+            # procesos en Linux): es una parada normal, no un error.
+            log.warning("follower: interrumpido con Ctrl+C")
+            self._transition(FollowerState.STOP, "interrumpido (Ctrl+C)")
         except Exception as exc:
             log.exception("follower: error inesperado")
             self._transition(FollowerState.STOP, f"error inesperado: {exc!r}")
@@ -447,7 +453,10 @@ class StreamingLoop:
             period_ns = now_ns - self._last_rx_ns
             self._periods_ns.append(period_ns)
             self._max_period_ns = max(self._max_period_ns, period_ns)
-            if len(self._periods_ns) % self._stats_every == 0:
+            # Por contador y no por len(): con la ventana llena len() no cambia y se publicaría
+            # (ordenando la ventana) en cada ciclo.
+            self._cycles += 1
+            if self._cycles % self._stats_every == 0:
                 self._publish_period_stats()
         self._last_rx_ns = now_ns
 

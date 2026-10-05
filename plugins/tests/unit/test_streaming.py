@@ -25,7 +25,7 @@ from fakes import (
 )
 from ur_core.config import FollowerConfig, ServoConfig, WatchdogConfig
 from ur_core.follower_script import render_follower_script
-from ur_core.streaming import ARM_TIMEOUT_S, FollowerState, SharedState, StreamingLoop
+from ur_core.streaming import ARM_TIMEOUT_S, PERIOD_WINDOW_S, FollowerState, SharedState, StreamingLoop
 
 HZ = 125
 FOLLOWER = FollowerConfig(
@@ -61,9 +61,10 @@ class Rig:
         actions: dict[int, Callable[["Rig"], None]] | None = None,
         fail: tuple[str, ...] = (),
         dashboard_fail: tuple[str, ...] = (),
+        shared: SharedState | None = None,
     ) -> None:
         self.clock = FakeClock()
-        self.shared = SharedState()
+        self.shared = shared or SharedState()
         self.parent_is_alive = True
         bound = {k: (lambda f=f: f(self)) for k, f in (actions or {}).items()}
         self.rtde = FakeRTDE(pkts, clock=self.clock, hz=HZ, actions=bound, fail=fail)
@@ -391,7 +392,39 @@ def test_dashboard_failure_on_shutdown_is_logged_and_state_still_published(
     assert "Dashboard" in caplog.text
 
 
+def test_ctrl_c_stops_with_reason_through_the_same_shutdown() -> None:
+    """Ctrl+C llega también al proceso hijo (consola en Windows, grupo de procesos en Linux)."""
+    near = offset(START_Q_RAD, 0, 0.005)
+
+    def ctrl_c(rig: Rig) -> None:
+        raise KeyboardInterrupt
+
+    rig = Rig(packets(50), actions={5: send_at(near), 12: ctrl_c}).serve()
+    assert rig.state == FollowerState.STOP
+    assert "Ctrl+C" in rig.reason
+    assert rig.rtde.written_enable()[-1] == 0
+    assert rig.dashboard.commands == ["stop"]
+
+
 # --- memoria compartida y observabilidad -----------------------------------------------------------
+
+
+class CountingSharedState(SharedState):
+    def __init__(self) -> None:
+        super().__init__()
+        self.stats_writes = 0
+
+    def write_period_stats(self, p50_s: float, p99_s: float, max_s: float) -> None:
+        self.stats_writes += 1
+        super().write_period_stats(p50_s, p99_s, max_s)
+
+
+def test_period_stats_published_once_per_second_also_after_the_window_fills() -> None:
+    """Ordenar la ventana en cada ciclo se comería el presupuesto de tiempo del bucle."""
+    seconds = PERIOD_WINDOW_S + 3
+    shared = CountingSharedState()
+    Rig(packets(round(seconds * HZ)), shared=shared).serve()
+    assert shared.stats_writes <= seconds + 2
 
 
 def test_measured_pose_and_period_stats_are_published() -> None:
