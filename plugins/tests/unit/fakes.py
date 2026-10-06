@@ -75,6 +75,11 @@ class FakeRTDE:
     - `actions[k]` se ejecuta justo antes de entregar el paquete `k` (0 = el primero).
     - `fail` simula los fallos que el cliente real devuelve como valor, no como excepción:
       `send_input_setup` → `None`, `send_output_setup`/`send_start` → `False`.
+      Y los que lanza: `connect` → `ConnectionRefusedError`; `connect_protocol` → `RTDEException`
+      (el puerto acepta pero el controlador no contesta, p. ej. URSim arrancando);
+      `setup_timeout` → `AttributeError` en `send_output_setup`/`send_input_setup` (el cliente
+      real hace `result.types` sobre una respuesta que no llegó); `send_oserror` →
+      `ConnectionResetError` en `send` (lo lanza `sock.sendall`).
     """
 
     def __init__(
@@ -101,6 +106,8 @@ class FakeRTDE:
     def connect(self) -> None:
         if "connect" in self._fail:
             raise ConnectionRefusedError("FakeRTDE: conexión rechazada")
+        if "connect_protocol" in self._fail:
+            raise RTDEException("Unable to negotiate protocol version")
         self.connected = True
 
     def disconnect(self) -> None:
@@ -111,12 +118,14 @@ class FakeRTDE:
         return self.connected
 
     def send_output_setup(self, variables: list[str], types: list[str] = [], frequency: float = 125) -> bool:  # noqa: B006 - misma firma que el cliente real
+        self._raise_if_setup_times_out()
         if "send_output_setup" in self._fail:
             return False
         self.output_setup = (list(variables), list(types), frequency)
         return True
 
     def send_input_setup(self, variables: list[str], types: list[str] = []) -> SimpleNamespace | None:  # noqa: B006
+        self._raise_if_setup_times_out()
         if "send_input_setup" in self._fail:
             return None
         recipe_id = len(self.input_setups) + 1
@@ -136,6 +145,8 @@ class FakeRTDE:
 
     def send(self, input_data: SimpleNamespace) -> bool:
         assert self.started, "send() antes de send_start(): el cliente real lo descartaría"
+        if "send_oserror" in self._fail:
+            raise ConnectionResetError("FakeRTDE: conexión reiniciada por el robot")
         names = self._input_names[input_data.recipe_id]
         t_ns = self._clock() if self._clock else now_ns()
         self.sent.append((t_ns, {name: getattr(input_data, name) for name in names}))
@@ -158,6 +169,11 @@ class FakeRTDE:
             self.connected = False
             raise RTDEException(" _recv() Connection lost ") from None
         return None if pkt is None else SimpleNamespace(**pkt)
+
+    def _raise_if_setup_times_out(self) -> None:
+        if "setup_timeout" in self._fail:
+            # El mismo error que el cliente real al hacer `result.types` con result=None.
+            raise AttributeError("'NoneType' object has no attribute 'types'")
 
     # --- consultas para los asserts -----------------------------------------------------
     def written_q(self) -> list[list[float]]:

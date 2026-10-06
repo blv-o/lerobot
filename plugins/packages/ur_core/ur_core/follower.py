@@ -140,9 +140,14 @@ class UrFollowerCore:
         con = self._rtde_factory(self._config.follower.ip)
         con.connect()
         try:
-            if not con.send_output_setup(
-                ["actual_q"], ["VECTOR6D"], frequency=self._config.follower.servo.hz
-            ):
+            try:
+                output_ok = con.send_output_setup(
+                    ["actual_q"], ["VECTOR6D"], frequency=self._config.follower.servo.hz
+                )
+            except AttributeError as exc:
+                # El cliente oficial hace `result.types` sobre la respuesta sin comprobar que llegó.
+                raise RTDEException("el robot no respondió a la configuración RTDE") from exc
+            if not output_ok:
                 raise RTDEException("el robot rechazó la receta de salida actual_q")
             if not con.send_start():
                 raise RTDEException("no se pudo iniciar la sincronización")

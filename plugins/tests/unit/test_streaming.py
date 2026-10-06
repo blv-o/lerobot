@@ -167,6 +167,8 @@ def test_arm_fails_if_heartbeat_never_changes() -> None:
     ("fail", "fragment"),
     [
         ("connect", "conectar"),
+        ("connect_protocol", "arrancando"),
+        ("setup_timeout", "no respond"),
         ("send_output_setup", "salida"),
         ("send_input_setup", "entrada"),
         ("send_start", "iniciar"),
@@ -343,6 +345,20 @@ def test_frozen_heartbeat_stops_after_stop_time() -> None:
     rig = Rig(packets(10) + frozen, actions=actions).serve()
     assert "heartbeat" in rig.reason
     assert len(rig.rtde.written_q()) < 10 + math.ceil(FOLLOWER.watchdog.stop_s * HZ) + 5
+
+
+def test_send_raising_oserror_counts_as_lost_stream() -> None:
+    """El cliente oficial devuelve False si no puede enviar, pero `sock.sendall` lanza OSError
+    (p. ej. conexión reiniciada): es una pérdida del stream, no un error inesperado."""
+    near = offset(START_Q_RAD, 0, 0.005)
+
+    def connection_reset(rig: Rig) -> None:
+        rig.rtde._fail.add("send_oserror")
+
+    rig = Rig(packets(30), actions={5: send_at(near), 10: connection_reset}).serve()
+    assert rig.state == FollowerState.STOP
+    assert rig.reason.startswith("se perdió el stream RTDE")
+    assert rig.dashboard.commands == ["stop"]
 
 
 def test_receive_timeout_counts_as_lost_stream() -> None:

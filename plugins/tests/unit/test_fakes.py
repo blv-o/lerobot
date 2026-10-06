@@ -78,6 +78,19 @@ def test_fake_rtde_runs_actions_before_packet_index() -> None:
     assert seen == [1]
 
 
+def test_fake_rtde_setup_timeout_raises_like_the_official_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sin respuesta a tiempo, el cliente real hace `result.types` sobre None. Si una versión
+    nueva lo corrige, este test avisa de que el modo `setup_timeout` ya no la imita."""
+    real = RTDE("127.0.0.1")
+    monkeypatch.setattr(real, "_RTDE__sendAndReceive", lambda *_args: None)
+    fake = FakeRTDE([], fail={"setup_timeout"})
+    for con in (real, fake):
+        with pytest.raises(AttributeError):
+            con.send_output_setup(["actual_q"], ["VECTOR6D"])
+        with pytest.raises(AttributeError):
+            con.send_input_setup(["input_int_register_0"], ["INT32"])
+
+
 def test_fake_rtde_simulates_setup_failures_as_return_values() -> None:
     con = FakeRTDE([], fail={"send_input_setup", "send_output_setup", "send_start"})
     assert con.send_input_setup(["input_int_register_0"], ["INT32"]) is None

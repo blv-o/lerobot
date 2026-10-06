@@ -375,6 +375,13 @@ def test_check_start_reports_unreachable_dashboard_and_rtde() -> None:
     assert "Dashboard" in errors[0] and "RTDE" in errors[1]
 
 
+def test_check_start_reports_robot_not_answering_the_rtde_setup() -> None:
+    """El cliente oficial lanza AttributeError si la respuesta a la receta no llega a tiempo."""
+    errors = make_core(rtde=("setup_timeout",)).check_start()
+    assert len(errors) == 1
+    assert "RTDE" in errors[0] and "no respondió" in errors[0]
+
+
 def test_start_prompt_tells_what_to_prepare_on_the_pendant() -> None:
     prompt = UrFollowerCore(CONFIG).start_prompt()
     assert "Remote Control" in prompt

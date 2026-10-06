@@ -321,12 +321,23 @@ class StreamingLoop:
         ip = self._cfg.ip
         try:
             self._rtde.connect()
-        except OSError as exc:
-            raise FollowerStartError(f"no se puede conectar por RTDE a {ip}: {exc}") from exc
-        if not self._rtde.send_output_setup(OUTPUT_NAMES, OUTPUT_TYPES, frequency=self._cfg.servo.hz):
+        except (RTDEException, OSError) as exc:
+            # RTDEException: el puerto acepta pero el controlador no negocia el protocolo (Docker
+            # publica el puerto aunque URSim aún esté arrancando).
+            raise FollowerStartError(
+                f"no se puede conectar por RTDE a {ip}: {exc} (¿el controlador todavía está arrancando?)"
+            ) from exc
+        try:
+            # El cliente oficial hace `result.types` sobre la respuesta sin comprobar que llegó:
+            # si el robot no contesta a tiempo lanza AttributeError en vez de devolver un error.
+            output_ok = self._rtde.send_output_setup(OUTPUT_NAMES, OUTPUT_TYPES, frequency=self._cfg.servo.hz)
+            if output_ok:
+                self._setpoint = self._rtde.send_input_setup(SETPOINT_NAMES, SETPOINT_TYPES)
+                self._enable = self._rtde.send_input_setup(ENABLE_NAMES, ENABLE_TYPES)
+        except AttributeError as exc:
+            raise FollowerStartError(f"el robot {ip} no respondió a la configuración RTDE") from exc
+        if not output_ok:
             raise FollowerStartError(f"RTDE: el robot rechazó la receta de salida {OUTPUT_NAMES}")
-        self._setpoint = self._rtde.send_input_setup(SETPOINT_NAMES, SETPOINT_TYPES)
-        self._enable = self._rtde.send_input_setup(ENABLE_NAMES, ENABLE_TYPES)
         if self._setpoint is None or self._enable is None:
             raise FollowerStartError(
                 "RTDE: registros de entrada input_double_register_0..5 / input_int_register_0 "
@@ -496,8 +507,13 @@ class StreamingLoop:
         for i, value in enumerate(q_rad):
             setattr(self._setpoint, SETPOINT_NAMES[i], value)
         self._enable.input_int_register_0 = enable
-        # El cliente oficial no lanza al fallar un envío: devuelve False/None.
-        if not self._rtde.send(self._setpoint) or not self._rtde.send(self._enable):
+        # El cliente oficial devuelve False/None si no puede enviar, pero `sock.sendall` sí lanza
+        # OSError (p. ej. conexión reiniciada).
+        try:
+            sent = self._rtde.send(self._setpoint) and self._rtde.send(self._enable)
+        except OSError as exc:
+            raise _StreamLostError(f"se perdió el stream RTDE: {exc}") from exc
+        if not sent:
             raise _StreamLostError("se perdió el stream RTDE: no se pudo escribir la consigna")
         self._last_cmd = list(q_rad)
 
