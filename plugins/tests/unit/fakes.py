@@ -81,7 +81,10 @@ class FakeRTDE:
       (el cliente real hace `result.types` sobre una respuesta que no llegó); `inputs_in_use` →
       `ValueError` en `send_input_setup` (el cliente real al ver `IN_USE` en la respuesta);
       `start_lost` → `RTDEException` en `send_start` (conexión perdida en plena configuración);
-      `send_oserror` → `ConnectionResetError` en `send` (lo lanza `sock.sendall`).
+      `setup_oserror` → `ConnectionResetError` en `send_output_setup` y `send_oserror` → lo mismo
+      en `send` (lo lanza `sock.sendall`).
+    - `send()` sin sincronización activa (antes de `send_start`, tras `disconnect` o tras perder la
+      conexión) no envía y devuelve None; con un campo de la receta sin valor lanza ValueError.
     """
 
     def __init__(
@@ -122,6 +125,8 @@ class FakeRTDE:
 
     def send_output_setup(self, variables: list[str], types: list[str] = [], frequency: float = 125) -> bool:  # noqa: B006 - misma firma que el cliente real
         self._raise_if_setup_times_out()
+        if "setup_oserror" in self._fail:
+            raise ConnectionResetError("FakeRTDE: conexión reiniciada por el robot")
         if "send_output_setup" in self._fail:
             return False
         self.output_setup = (list(variables), list(types), frequency)
@@ -151,13 +156,17 @@ class FakeRTDE:
         self.started = False
         return True
 
-    def send(self, input_data: SimpleNamespace) -> bool:
-        assert self.started, "send() antes de send_start(): el cliente real lo descartaría"
+    def send(self, input_data: SimpleNamespace) -> bool | None:
+        if not (self.connected and self.started):
+            return None  # el cliente real registra el error y no envía
         if "send_oserror" in self._fail:
             raise ConnectionResetError("FakeRTDE: conexión reiniciada por el robot")
-        names = self._input_names[input_data.recipe_id]
+        fields = {name: getattr(input_data, name) for name in self._input_names[input_data.recipe_id]}
+        for name, value in fields.items():
+            if value is None:  # como `serialize.DataObject.pack` del cliente real
+                raise ValueError("Uninitialized parameter: " + name)
         t_ns = self._clock() if self._clock else now_ns()
-        self.sent.append((t_ns, {name: getattr(input_data, name) for name in names}))
+        self.sent.append((t_ns, fields))
         return True
 
     def receive(self) -> SimpleNamespace | None:
