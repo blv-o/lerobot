@@ -431,6 +431,23 @@ def test_dashboard_failure_on_shutdown_is_logged_and_state_still_published(
     assert "Dashboard" in caplog.text
 
 
+def test_backup_stop_goes_over_a_fresh_dashboard_connection() -> None:
+    """La conexión abierta al armar puede llevar muerta desde entonces (el Dashboard o la red la
+    cerraron) y `connect()` no la renovaría: el `stop` de respaldo va por una nueva."""
+    rig = Rig(packets(20)).serve()
+    assert rig.dashboard.connections == 2  # la del armado y una nueva en el cierre
+    assert rig.dashboard.commands == ["stop"]
+
+
+def test_backup_stop_not_confirmed_by_the_dashboard_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    """El Dashboard contesta "Stopped" si paró el programa; cualquier otra respuesta es un fallo."""
+    dashboard = FakeDashboard({"stop": "Failed to execute: stop"})
+    with caplog.at_level(logging.ERROR):
+        rig = Rig(packets(20), dashboard=dashboard).serve()
+    assert rig.state == FollowerState.STOP
+    assert "Failed to execute: stop" in caplog.text
+
+
 def _written_q(fields: dict[str, Any]) -> list[float]:
     return [fields[f"input_double_register_{i}"] for i in range(6)]
 

@@ -206,18 +206,26 @@ class FakeRTDE:
 
 
 class FakeDashboard:
-    """Dashboard (29999) con respuestas preparadas; guarda los comandos recibidos."""
+    """Dashboard (29999) con respuestas preparadas; guarda los comandos recibidos.
+
+    Como `DashboardClient`, `connect()` no hace nada si ya hay conexión; `connections` cuenta las
+    que se abren de verdad. `stop` contesta "Stopped", como el Dashboard de UR, salvo otra respuesta.
+    """
 
     def __init__(self, responses: dict[str, str] | None = None, fail: Iterable[str] = ()) -> None:
-        self._responses = responses or {}
+        self._responses = {"stop": "Stopped", **(responses or {})}
         self._fail = set(fail)
         self.commands: list[str] = []
         self.connected = False
+        self.connections = 0
 
     def connect(self) -> None:
+        if self.connected:
+            return
         if "connect" in self._fail:
             raise ConnectionRefusedError("FakeDashboard: conexión rechazada")
         self.connected = True
+        self.connections += 1
 
     def send(self, command: str) -> str:
         if "send" in self._fail:

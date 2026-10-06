@@ -450,8 +450,7 @@ class StreamingLoop:
                 log.exception("follower: no se pudo escribir enable=0 (el watchdog del robot lo parará)")
         if self._script_sent:
             try:
-                self._dashboard.connect()
-                self._dashboard.send("stop")
+                self._backup_stop()
             except Exception:
                 log.exception("follower: el `stop` de respaldo por el Dashboard falló")
         try:
@@ -461,6 +460,15 @@ class StreamingLoop:
         self._publish_period_stats()
         self._shared.publish_state(FollowerState.STOP, self._reason)  # por si el cierre lo amplió
         self._rtde.disconnect()
+
+    def _backup_stop(self) -> None:
+        # Conexión nueva: la del armado puede llevar muerta desde entonces, y `connect()` no la
+        # renueva mientras el socket siga abierto.
+        self._dashboard.close()
+        self._dashboard.connect()
+        answer = self._dashboard.send("stop")
+        if not answer.startswith("Stopped"):  # lo que contesta el Dashboard de UR si lo paró
+            log.error("follower: el Dashboard no confirmó el `stop` de respaldo: %r", answer)
 
     # --- un ciclo por paquete -----------------------------------------------------------
     def _cycle(self) -> None:
