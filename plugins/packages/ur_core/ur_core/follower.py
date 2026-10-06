@@ -190,15 +190,21 @@ class UrFollowerCore:
             raise ValueError(f"se esperaban {N_JOINTS} articulaciones y llegan {len(q)}")
         if not all(math.isfinite(x) for x in q):
             raise ValueError(f"consigna con valores no finitos: {q}")
-        shared = self._connected_state()
-        state, reason = shared.read_state()
-        if state == FollowerState.STOP:
-            raise FollowerStoppedError(f"el follower está parado: {reason}")
+        shared, worker = self._connected()
+        self._raise_if_stopped(shared, alive=worker.is_alive())
         shared.write_target(q, self._clock())
 
     def get_joints(self) -> list[float]:
-        """Última `actual_q` medida, en rad."""
-        return self._connected_state().read_measured()
+        """Última `actual_q` medida, en rad.
+
+        Con el proceso de streaming muerto lanza en vez de devolver la última pose: una pose
+        congelada haría que LeRobot siguiera grabando con el robot parado.
+        """
+        shared, worker = self._connected()
+        alive = worker.is_alive()
+        if not alive:
+            self._raise_if_stopped(shared, alive)
+        return shared.read_measured()
 
     def status(self) -> FollowerStatus:
         if self._shared is None:
@@ -221,10 +227,23 @@ class UrFollowerCore:
             self._worker.join(timeout=JOIN_MARGIN_S)
         self._worker = None
 
-    def _connected_state(self) -> SharedState:
+    def _connected(self) -> tuple[SharedState, Worker]:
         if self._worker is None or self._shared is None:
             raise RuntimeError("follower no conectado: llama a connect()")
-        return self._shared
+        return self._shared, self._worker
+
+    @staticmethod
+    def _raise_if_stopped(shared: SharedState, alive: bool) -> None:
+        """`alive` se lee ANTES que el estado: si el proceso murió después de publicar STOP, se
+        ve su motivo; si murió sin publicarlo (EDR, `terminate()`, fallo nativo), el estado se
+        quedó en RUN/HOLD y solo `alive` lo delata."""
+        state, reason = shared.read_state()
+        if state == FollowerState.STOP:
+            raise FollowerStoppedError(f"el follower está parado: {reason}")
+        if not alive:
+            raise FollowerStoppedError(
+                "el proceso del follower terminó sin publicar el motivo; el watchdog del robot lo para"
+            )
 
     def _abort(self) -> None:
         assert self._worker is not None

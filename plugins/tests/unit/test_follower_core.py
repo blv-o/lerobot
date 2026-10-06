@@ -203,6 +203,46 @@ def test_send_joints_after_stop_raises_with_reason(rig: Rig) -> None:
     core.disconnect()
 
 
+def test_send_and_get_joints_raise_if_the_process_died_without_publishing_stop() -> None:
+    """Un proceso muerto sin pasar por su cierre (EDR, `terminate()`, fallo nativo) deja el estado
+    en RUN: sin mirar si vive, LeRobot seguiría mandando consignas y grabando una pose congelada."""
+    workers: list[ThreadWorker] = []
+
+    def launch(_follower: FollowerConfig, _tol_rad: float, shared: SharedState) -> ThreadWorker:
+        def reach_run_and_die() -> None:
+            shared.try_write_measured(START_Q_RAD)
+            shared.publish_state(FollowerState.WAIT)
+            while (shared.try_read_target() or (0,))[0] == 0:
+                time.sleep(0.001)
+            shared.publish_state(FollowerState.RUN)
+
+        worker = ThreadWorker(target=reach_run_and_die, daemon=True)
+        worker.start()
+        workers.append(worker)
+        return worker
+
+    core = UrFollowerCore(CONFIG, launch=launch)
+    core.connect()
+    core.send_joints(NEAR)
+    workers[0].join(timeout=WAIT_S)
+    assert core.status().state == FollowerState.RUN
+    with pytest.raises(FollowerStoppedError, match="terminó sin publicar el motivo"):
+        core.send_joints(NEAR)
+    with pytest.raises(FollowerStoppedError, match="terminó sin publicar el motivo"):
+        core.get_joints()
+    core.disconnect()
+
+
+def test_get_joints_after_the_process_ended_raises_with_its_reason(rig: Rig) -> None:
+    core = UrFollowerCore(CONFIG, launch=rig.launch)
+    core.connect()
+    core.send_joints(FAR)
+    rig.worker.join(timeout=WAIT_S)
+    with pytest.raises(FollowerStoppedError, match="primera consigna lejos"):
+        core.get_joints()
+    core.disconnect()
+
+
 # --- parada --------------------------------------------------------------------------------
 
 
