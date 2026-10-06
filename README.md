@@ -8,9 +8,9 @@ Instala la librería `lerobot` completa (`src/`, sin cambios salvo lo indicado a
 
 | Dónde | Qué |
 |---|---|
-| `plugins/packages/lerobot_robot_ur_follower/` | Robot `ur_follower`: UR que sigue las consignas por RTDE (`servoj` en un URScript que lee registros RTDE) |
-| `plugins/packages/lerobot_teleoperator_ur_leader/` | Teleoperador `ur_leader`: UR en freedrive (se mueve a mano) del que solo se lee la posición articular |
-| `plugins/packages/ur_core/` | Lógica común a ambos, con el cliente RTDE oficial de UR |
+| `plugins/packages/lerobot_robot_ur_follower/` | Robot `ur_follower`: UR que sigue las consignas por RTDE (`servoj` en un URScript que lee registros RTDE). En desarrollo: hoy solo registra el tipo en LeRobot; la lógica del follower ya está en `ur_core` |
+| `plugins/packages/lerobot_teleoperator_ur_leader/` | Teleoperador `ur_leader`: UR en freedrive (se mueve a mano) del que solo se lee la posición articular. En desarrollo: hoy solo registra el tipo en LeRobot |
+| `plugins/packages/ur_core/` | Lógica de ambos, con el cliente RTDE oficial de UR: la del follower (`UrFollowerCore`) ya está implementada; la del leader, todavía no |
 | `plugins/ursim/` | Dos URSim 5.25.2 (fijados por digest) en Docker para probar sin hardware |
 | `plugins/tests/` | Suite de los plugins |
 | `src/lerobot/common/train_utils.py` | `lerobot-train` no se cae en Windows al crear `checkpoints/last` (usa un *junction* si no se puede crear el symlink) |
@@ -45,16 +45,18 @@ Una dependencia nueva se declara en el `pyproject.toml` del plugin que la necesi
 ## Tests
 
 ```bash
-pytest plugins/tests              # sin URSim ni hardware
-pytest plugins/tests -m ursim     # con los URSim de plugins/ursim levantados (ver su README)
-pytest tests                      # suite original de LeRobot
+python -m pip install -e ".[test]"   # una vez: pytest, pytest-timeout… (extra `test` del pyproject.toml raíz)
+pytest plugins/tests                 # sin URSim ni hardware
+pytest plugins/tests -m ursim        # con los URSim de plugins/ursim levantados (ver su README)
+pytest plugins/tests -m timing       # temporización del follower contra URSim (necesita los URSim levantados)
+pytest tests                         # suite original de LeRobot
 ```
 
 ## Ramas
 
 - `main`: copia del upstream, solo como referencia para comparar y traer actualizaciones.
 - `fix/windows-last-checkpoint`: arreglo de Windows + retirada de lo que no aplica a este proyecto (ya incluida en `lerobot/ur-plugin`).
-- `lerobot/ur-plugin` (rama por defecto): fork completo con los plugins UR; cada spec se desarrolla en su rama `spec/0NN-...` creada desde aquí y se fusiona al terminar.
+- `lerobot/ur-plugin` (rama por defecto): fork completo con los plugins UR. Desde aquí se puede crear un *worktree* con su propia rama para cada bloque de trabajo (del tamaño que convenga según lo que se quiera paralelizar); la rama se fusiona en `lerobot/ur-plugin` al validarla.
 
 ## Licencia
 
