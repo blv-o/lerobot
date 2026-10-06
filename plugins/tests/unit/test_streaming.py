@@ -7,6 +7,7 @@ de LeRobot se inyectan como acciones antes de un paquete concreto. Nada duerme.
 import logging
 import math
 import multiprocessing
+import signal
 import threading
 from collections.abc import Callable
 from typing import Any
@@ -512,6 +513,30 @@ def test_ctrl_c_stops_with_reason_through_the_same_shutdown() -> None:
     assert "Ctrl+C" in rig.reason
     assert rig.rtde.written_enable()[-1] == 0
     assert rig.dashboard.commands == ["stop"]
+
+
+class SigintSpyDashboard(FakeDashboard):
+    """Anota el manejador de SIGINT que hay mientras el cierre manda el `stop`."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.sigint_handler: object = None
+
+    def send(self, command: str) -> str:
+        self.sigint_handler = signal.getsignal(signal.SIGINT)
+        return super().send(command)
+
+
+def test_a_second_ctrl_c_cannot_cut_the_shutdown_short() -> None:
+    """Los `except Exception` del cierre no cogen KeyboardInterrupt: un segundo Ctrl+C se saltaría
+    enable=0, el `stop` o el motivo. Acabado el cierre, el manejador vuelve a ser el de antes."""
+    assert threading.current_thread() is threading.main_thread()
+    before = signal.getsignal(signal.SIGINT)
+    dashboard = SigintSpyDashboard()
+    Rig(packets(20), dashboard=dashboard).serve()
+    assert dashboard.commands == ["stop"]
+    assert dashboard.sigint_handler is signal.SIG_IGN
+    assert signal.getsignal(signal.SIGINT) is before
 
 
 # --- memoria compartida y observabilidad -----------------------------------------------------------

@@ -12,6 +12,8 @@ mismo cierre: enable=0 y `stop` por el Dashboard. Es una segunda capa: la seguri
 import logging
 import math
 import multiprocessing
+import signal
+import threading
 from collections import deque
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -132,6 +134,21 @@ class Dashboard(Protocol):
 
 def _named(table: dict[int, str], value: int) -> str:
     return f"{table.get(value, '?')} ({value})"
+
+
+@contextmanager
+def _sigint_ignored() -> Iterator[None]:
+    """Un segundo Ctrl+C durante el cierre se saltaría enable=0, el `stop` o el motivo: los
+    `except Exception` no cogen KeyboardInterrupt. `signal.signal` solo vale en el hilo principal,
+    y el bucle también puede correr en otro hilo (p. ej. en los tests)."""
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    previous = signal.signal(signal.SIGINT, signal.SIG_IGN)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGINT, previous)
 
 
 class SharedState:
@@ -328,7 +345,8 @@ class StreamingLoop:
             log.exception("follower: error inesperado")
             self._transition(FollowerState.STOP, f"error inesperado: {exc!r}")
         finally:
-            self._shutdown()
+            with _sigint_ignored():
+                self._shutdown()
 
     def _arm(self) -> None:
         ip = self._cfg.ip
