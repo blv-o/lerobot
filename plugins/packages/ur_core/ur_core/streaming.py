@@ -295,12 +295,12 @@ class StreamingLoop:
         self._reason = ""
         self._command: Any = None
         self._script_sent = False
-        self._armed_q: list[float] = []
-        self._last_cmd: list[float] = []
+        self._armed_q_rad: list[float] = []
+        self._last_cmd_rad: list[float] = []
         self._last_target_read: tuple[int, int, list[float]] = (0, 0, [])
         self._seg_seq = 0
-        self._seg_start: list[float] = []
-        self._seg_target: list[float] = []
+        self._seg_start_rad: list[float] = []
+        self._seg_target_rad: list[float] = []
         self._hb = 0
         self._hb_change_ns = 0
         self._last_rx_ns: int | None = None
@@ -362,10 +362,10 @@ class StreamingLoop:
 
         pkt = self._receive()
         self._check_ready(pkt)
-        self._armed_q = list(pkt.actual_q)
-        self._shared.try_write_measured(self._armed_q)
+        self._armed_q_rad = list(pkt.actual_q)
+        self._shared.try_write_measured(self._armed_q_rad)
         # Consigna = pose actual y deshabilitado ANTES de subir el script: nunca hay salto.
-        self._write(self._armed_q, enable=0)
+        self._write(self._armed_q_rad, enable=0)
         self._upload_script()
 
         hb0 = pkt.output_int_register_0
@@ -377,7 +377,7 @@ class StreamingLoop:
                 )
             pkt = self._receive()
             self._shared.try_write_measured(pkt.actual_q)
-            self._write(self._armed_q, enable=0)  # alimenta el watchdog
+            self._write(self._armed_q_rad, enable=0)  # alimenta el watchdog
         self._hb = pkt.output_int_register_0
         self._hb_change_ns = self._clock()
         # Las escrituras `try_*` del armado pueden haber coincidido todas con el padre leyendo el
@@ -425,9 +425,9 @@ class StreamingLoop:
         # Sin ningún comando escrito no hay nada habilitado (y el cliente oficial no empaqueta una
         # receta con campos sin valor). Si lo hay, se repite el último con enable=0: la receta
         # lleva siempre la consigna, y repetir la última no pide ningún movimiento nuevo.
-        if self._last_cmd and self._rtde.is_connected():
+        if self._last_cmd_rad and self._rtde.is_connected():
             try:
-                self._write(self._last_cmd, enable=0)
+                self._write(self._last_cmd_rad, enable=0)
             except Exception:
                 log.exception("follower: no se pudo escribir enable=0 (el watchdog del robot lo parará)")
         if self._script_sent:
@@ -457,17 +457,17 @@ class StreamingLoop:
         latest = self._shared.try_read_target()
         if latest is not None:
             self._last_target_read = latest
-        seq, t_ns, target = self._last_target_read
+        seq, t_ns, target_rad = self._last_target_read
         if self._state == FollowerState.WAIT:
-            self._wait_cycle(pkt, seq, t_ns, target, now_ns)
+            self._wait_cycle(pkt, seq, t_ns, target_rad, now_ns)
         else:
-            self._run_cycle(seq, t_ns, target, now_ns)
+            self._run_cycle(seq, t_ns, target_rad, now_ns)
 
-    def _wait_cycle(self, pkt: Any, seq: int, t_ns: int, target: list[float], now_ns: int) -> None:
+    def _wait_cycle(self, pkt: Any, seq: int, t_ns: int, target_rad: list[float], now_ns: int) -> None:
         if seq == 0:
-            self._write(self._armed_q, enable=0)
+            self._write(self._armed_q_rad, enable=0)
             return
-        error_rad = max(abs(t - m) for t, m in zip(target, pkt.actual_q, strict=True))
+        error_rad = max(abs(t - m) for t, m in zip(target_rad, pkt.actual_q, strict=True))
         if error_rad > self._tol_rad:
             self._transition(
                 FollowerState.STOP,
@@ -476,13 +476,14 @@ class StreamingLoop:
             )
             return
         self._transition(FollowerState.RUN)
-        self._run_cycle(seq, t_ns, target, now_ns)
+        self._run_cycle(seq, t_ns, target_rad, now_ns)
 
-    def _run_cycle(self, seq: int, t_ns: int, target: list[float], now_ns: int) -> None:
+    def _run_cycle(self, seq: int, t_ns: int, target_rad: list[float], now_ns: int) -> None:
         if seq != self._seg_seq:
             # Parte del último comando escrito, no de la consigna anterior: la salida es continua
             # aunque la consigna nueva llegue antes de terminar la anterior.
-            self._seg_seq, self._seg_start, self._seg_target = seq, list(self._last_cmd), target
+            self._seg_seq = seq
+            self._seg_start_rad, self._seg_target_rad = list(self._last_cmd_rad), target_rad
             if self._state == FollowerState.HOLD:
                 self._transition(FollowerState.RUN)
         age_ns = now_ns - t_ns
@@ -492,12 +493,12 @@ class StreamingLoop:
         if age_ns > self._hold_ns:
             if self._state == FollowerState.RUN:
                 self._transition(FollowerState.HOLD, f"sin consignas nuevas durante {age_ns / 1e6:.0f} ms")
-            self._write(self._last_cmd, enable=1)
+            self._write(self._last_cmd_rad, enable=1)
             return
         interpolated = interpolate(
-            self._seg_start, self._seg_target, age_ns / 1e9, self._cfg.servo.target_period_s
+            self._seg_start_rad, self._seg_target_rad, age_ns / 1e9, self._cfg.servo.target_period_s
         )
-        self._write(limit_step(interpolated, self._last_cmd, self._max_step_rad), enable=1)
+        self._write(limit_step(interpolated, self._last_cmd_rad, self._max_step_rad), enable=1)
 
     def _robot_fault(self, pkt: Any, now_ns: int) -> str:
         if pkt.safety_mode not in SAFETY_MODES_OK:
@@ -544,7 +545,7 @@ class StreamingLoop:
             raise _StreamLostError(f"se perdió el stream RTDE: {exc}") from exc
         if not sent:
             raise _StreamLostError("se perdió el stream RTDE: no se pudo escribir la consigna")
-        self._last_cmd = list(q_rad)
+        self._last_cmd_rad = list(q_rad)
 
     # --- observabilidad -----------------------------------------------------------------
     def _transition(self, state: FollowerState, reason: str = "") -> None:

@@ -78,9 +78,9 @@ class Rig:
 
 
 def wait_for(core: UrFollowerCore, state: FollowerState) -> None:
-    deadline = time.monotonic() + WAIT_S
+    deadline_ns = now_ns() + round(WAIT_S * 1e9)
     while core.status().state != state:
-        assert time.monotonic() < deadline, f"no llegó a {state.name}: {core.status()}"
+        assert now_ns() < deadline_ns, f"no llegó a {state.name}: {core.status()}"
         time.sleep(0.005)
 
 
@@ -300,9 +300,9 @@ def test_status_reports_period_statistics(rig: Rig) -> None:
     core = UrFollowerCore(CONFIG, launch=rig.launch)
     core.connect()
     core.send_joints(NEAR)
-    deadline = time.monotonic() + WAIT_S
+    deadline_ns = now_ns() + round(WAIT_S * 1e9)
     while core.status().period_max_s == 0:
-        assert time.monotonic() < deadline
+        assert now_ns() < deadline_ns
         core.send_joints(NEAR)
         time.sleep(0.02)
     core.disconnect()

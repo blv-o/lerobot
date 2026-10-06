@@ -110,7 +110,7 @@ class UrFollowerCore:
     def check_start(self) -> list[str]:
         """Problemas que impiden arrancar ([] = listo). No lanza: cada fallo es una línea."""
         ip = self._config.follower.ip
-        errors = []
+        errors: list[str] = []
         try:
             answer = self._ask_dashboard("is in remote control")
             if answer.strip().lower() != "true":
@@ -191,15 +191,15 @@ class UrFollowerCore:
     # --- teleoperación ------------------------------------------------------------------
     def send_joints(self, q_rad: Sequence[float]) -> None:
         """Deja la consigna (6 rad) para el proceso de streaming; no espera al robot."""
-        q = [float(x) for x in q_rad]
-        if len(q) != N_JOINTS:
-            raise ValueError(f"se esperaban {N_JOINTS} articulaciones y llegan {len(q)}")
-        if not all(math.isfinite(x) for x in q):
-            raise ValueError(f"consigna con valores no finitos: {q}")
+        target_rad = [float(x) for x in q_rad]
+        if len(target_rad) != N_JOINTS:
+            raise ValueError(f"se esperaban {N_JOINTS} articulaciones y llegan {len(target_rad)}")
+        if not all(math.isfinite(x) for x in target_rad):
+            raise ValueError(f"consigna con valores no finitos: {target_rad}")
         shared, worker = self._connected()
         self._raise_if_stopped(shared, alive=worker.is_alive())
         # El mismo reloj que usa el proceso de streaming para la edad de la consigna.
-        shared.write_target(q, now_ns())
+        shared.write_target(target_rad, now_ns())
 
     def get_joints(self) -> list[float]:
         """Última `actual_q` medida, en rad.
