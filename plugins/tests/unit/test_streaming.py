@@ -9,7 +9,7 @@ import math
 import multiprocessing
 import signal
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import pytest
@@ -156,18 +156,29 @@ def test_arm_reaches_wait_when_heartbeat_changes() -> None:
     assert rig.states()[:1] == [FollowerState.WAIT]
 
 
+class LockAlwaysBusyWhileArming(SharedState):
+    """Como si el padre tuviera el Lock en cada `try_write_measured`; anota la pose al publicar WAIT."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.measured_at_wait: list[float] | None = None
+
+    def try_write_measured(self, q_rad: Sequence[float]) -> bool:
+        return False
+
+    def publish_state(self, state: FollowerState, reason: str = "") -> None:
+        if state == FollowerState.WAIT:  # antes de publicar: el Lock no es reentrante
+            self.measured_at_wait = self.read_measured()
+        super().publish_state(state, reason)
+
+
 def test_measured_pose_is_written_before_wait_even_if_the_lock_was_busy_while_arming() -> None:
     """`connect()` vuelve en cuanto ve WAIT: con la pose aún a ceros, un `send_joints(get_joints())`
     justo después sería una "primera consigna lejos"."""
-
-    def parent_reading_while_arming(rig: Rig) -> None:
-        lock = rig.shared._lock
-        assert lock.acquire(block=False)
-        threading.Timer(0.2, lock.release).start()
-
-    rig = Rig(packets(ARM_PACKETS), actions={0: parent_reading_while_arming}).serve()
+    shared = LockAlwaysBusyWhileArming()
+    rig = Rig(packets(ARM_PACKETS), shared=shared).serve()
     assert FollowerState.WAIT in rig.states()
-    assert rig.shared.read_measured() == pytest.approx(START_Q_RAD)
+    assert shared.measured_at_wait == pytest.approx(START_Q_RAD)
 
 
 def test_arm_fails_if_heartbeat_never_changes() -> None:

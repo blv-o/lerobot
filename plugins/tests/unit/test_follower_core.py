@@ -267,6 +267,42 @@ def test_send_joints_is_non_blocking_and_reaches_the_robot(rig: Rig) -> None:
     assert 1 in rig.rtde.written_enable()
 
 
+def test_send_joints_stamps_targets_with_the_streaming_process_clock() -> None:
+    """El proceso de streaming compara el t_ns de cada consigna con su `now_ns()`: con otro reloj
+    (p. ej. el de pared) la edad de la consigna no tendría sentido y HOLD/STOP no saltarían."""
+    worker = ScriptedWorker()
+    core = UrFollowerCore(CONFIG, launch=worker.launch)
+    core.connect()
+    core.send_joints(NEAR)
+    assert worker.shared is not None
+    target = worker.shared.try_read_target()
+    assert target is not None
+    _, t_ns, _ = target
+    assert abs(now_ns() - t_ns) < 100_000_000  # 0,1 s
+    core.disconnect()
+
+
+@pytest.mark.parametrize(
+    "call", [lambda core: core.send_joints(NEAR), lambda core: core.get_joints()], ids=["send", "get"]
+)
+def test_liveness_is_read_before_the_state(call: Callable[[UrFollowerCore], Any]) -> None:
+    """Si el proceso publica STOP y muere entre las dos lecturas, leyendo el estado primero se
+    vería RUN y luego muerto: se perdería el motivo real de la parada."""
+    worker = ScriptedWorker()
+    core = UrFollowerCore(CONFIG, launch=worker.launch)
+    core.connect()
+
+    def publishes_stop_and_dies() -> None:
+        assert worker.shared is not None
+        worker.shared.publish_state(FollowerState.STOP, "motivo real")
+        worker.alive = False
+
+    worker.on_is_alive = publishes_stop_and_dies
+    with pytest.raises(FollowerStoppedError, match="motivo real"):
+        call(core)
+    core.disconnect()
+
+
 def test_send_joints_after_stop_raises_with_reason(rig: Rig) -> None:
     core = UrFollowerCore(CONFIG, launch=rig.launch)
     core.connect()
