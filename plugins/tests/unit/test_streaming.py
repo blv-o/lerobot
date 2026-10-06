@@ -135,9 +135,9 @@ def test_arm_declares_recipes_with_explicit_types() -> None:
         "output_int_register_0",
     ]
     assert len(types) == len(names) and frequency == HZ
-    inputs = rig.rtde.input_setups
-    assert inputs[0] == ([f"input_double_register_{i}" for i in range(6)], ["DOUBLE"] * 6)
-    assert inputs[1] == (["input_int_register_0"], ["INT32"])
+    # Una sola receta de entrada: consigna y enable llegan siempre juntos al robot.
+    command = [f"input_double_register_{i}" for i in range(6)] + ["input_int_register_0"]
+    assert rig.rtde.input_setups == [(command, ["DOUBLE"] * 6 + ["INT32"])]
 
 
 def test_arm_writes_current_pose_disabled_before_uploading_script() -> None:
@@ -145,7 +145,7 @@ def test_arm_writes_current_pose_disabled_before_uploading_script() -> None:
     assert rig.sent_before_script is not None and rig.sent_before_script >= 1
     first = rig.rtde.sent[0][1]
     assert [first[f"input_double_register_{i}"] for i in range(6)] == START_Q_RAD
-    assert rig.rtde.sent[1][1] == {"input_int_register_0": 0}
+    assert first["input_int_register_0"] == 0
     assert rig.secondary.scripts == [(FOLLOWER.ip, render_follower_script(FOLLOWER.servo, FOLLOWER.watchdog))]
 
 
@@ -424,6 +424,39 @@ def test_dashboard_failure_on_shutdown_is_logged_and_state_still_published(
         rig = Rig(packets(20), dashboard_fail=("send",)).serve()
     assert rig.state == FollowerState.STOP
     assert "Dashboard" in caplog.text
+
+
+def _written_q(fields: dict[str, Any]) -> list[float]:
+    return [fields[f"input_double_register_{i}"] for i in range(6)]
+
+
+def test_every_write_carries_target_and_enable_together() -> None:
+    """Con consigna y enable en paquetes separados, el robot podía ver enable=1 junto a la
+    consigna del ciclo anterior."""
+    near = offset(START_Q_RAD, 0, 0.005)
+    rig = Rig(packets(20), actions={5: send_at(near), 15: lambda rig: rig.shared.request_stop()}).serve()
+    command = {f"input_double_register_{i}" for i in range(6)} | {"input_int_register_0"}
+    assert rig.rtde.sent and all(set(fields) == command for _, fields in rig.rtde.sent)
+
+
+def test_shutdown_resends_the_last_command_with_enable_0() -> None:
+    """La receta lleva siempre la consigna: para deshabilitar se repite la última enviada, que no
+    pide ningún movimiento nuevo."""
+    near = offset(START_Q_RAD, 0, 0.005)
+    rig = Rig(packets(50), actions={5: send_at(near), 10: lambda rig: rig.shared.request_stop()}).serve()
+    (_, before), (_, last) = rig.rtde.sent[-2:]
+    assert (before["input_int_register_0"], last["input_int_register_0"]) == (1, 0)
+    assert _written_q(last) == _written_q(before)
+
+
+def test_shutdown_writes_nothing_if_no_command_was_ever_written(caplog: pytest.LogCaptureFixture) -> None:
+    """Sin ningún comando escrito no hay nada habilitado, y el cliente oficial no puede empaquetar
+    una receta con campos sin valor (lanza ValueError)."""
+    with caplog.at_level(logging.ERROR):
+        rig = Rig(packets(3, robot_mode=5)).serve()  # para antes de la primera escritura
+    assert rig.state == FollowerState.STOP
+    assert rig.rtde.sent == []
+    assert "enable=0" not in caplog.text
 
 
 def test_ctrl_c_stops_with_reason_through_the_same_shutdown() -> None:

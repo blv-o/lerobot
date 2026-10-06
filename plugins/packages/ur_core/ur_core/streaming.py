@@ -50,9 +50,9 @@ OUTPUT_NAMES = [
 ]
 OUTPUT_TYPES = ["VECTOR6D", "DOUBLE", "INT32", "INT32", "UINT32", "INT32"]
 SETPOINT_NAMES = [f"input_double_register_{i}" for i in range(N_JOINTS)]
-SETPOINT_TYPES = ["DOUBLE"] * N_JOINTS
-ENABLE_NAMES = ["input_int_register_0"]
-ENABLE_TYPES = ["INT32"]
+# Una sola receta de entrada: consigna y enable llegan siempre juntos al robot, en un paquete.
+COMMAND_NAMES = [*SETPOINT_NAMES, "input_int_register_0"]
+COMMAND_TYPES = ["DOUBLE"] * N_JOINTS + ["INT32"]
 
 # Valores de RTDE (guía de RTDE de Universal Robots), con nombre para que los motivos se lean.
 ROBOT_MODES = {
@@ -293,8 +293,7 @@ class StreamingLoop:
         self.events: list[tuple[int, FollowerState, str]] = []  # (t_ns, estado nuevo, motivo)
         self._state = FollowerState.ARMING
         self._reason = ""
-        self._setpoint: Any = None
-        self._enable: Any = None
+        self._command: Any = None
         self._script_sent = False
         self._armed_q: list[float] = []
         self._last_cmd: list[float] = []
@@ -346,13 +345,12 @@ class StreamingLoop:
             # si el robot no contesta a tiempo lanza AttributeError en vez de devolver un error.
             output_ok = self._rtde.send_output_setup(OUTPUT_NAMES, OUTPUT_TYPES, frequency=self._cfg.servo.hz)
             if output_ok:
-                self._setpoint = self._rtde.send_input_setup(SETPOINT_NAMES, SETPOINT_TYPES)
-                self._enable = self._rtde.send_input_setup(ENABLE_NAMES, ENABLE_TYPES)
+                self._command = self._rtde.send_input_setup(COMMAND_NAMES, COMMAND_TYPES)
         except AttributeError as exc:
             raise FollowerStartError(f"el robot {ip} no respondió a la configuración RTDE") from exc
         if not output_ok:
             raise FollowerStartError(f"RTDE: el robot rechazó la receta de salida {OUTPUT_NAMES}")
-        if self._setpoint is None or self._enable is None:
+        if self._command is None:
             raise FollowerStartError(
                 "RTDE: registros de entrada input_double_register_0..5 / input_int_register_0 "
                 "no disponibles (¿los usa otro cliente RTDE o un bus de campo?)"
@@ -411,13 +409,14 @@ class StreamingLoop:
             )
 
     def _shutdown(self) -> None:
-        if self._enable is not None and self._rtde.is_connected():
-            self._enable.input_int_register_0 = 0
+        # Sin ningún comando escrito no hay nada habilitado (y el cliente oficial no empaqueta una
+        # receta con campos sin valor). Si lo hay, se repite el último con enable=0: la receta
+        # lleva siempre la consigna, y repetir la última no pide ningún movimiento nuevo.
+        if self._last_cmd and self._rtde.is_connected():
             try:
-                if not self._rtde.send(self._enable):
-                    log.error("follower: no se pudo escribir enable=0 (el watchdog del robot lo parará)")
+                self._write(self._last_cmd, enable=0)
             except Exception:
-                log.exception("follower: error al escribir enable=0 (el watchdog del robot lo parará)")
+                log.exception("follower: no se pudo escribir enable=0 (el watchdog del robot lo parará)")
         if self._script_sent:
             try:
                 self._dashboard.connect()
@@ -522,12 +521,12 @@ class StreamingLoop:
 
     def _write(self, q_rad: Sequence[float], enable: int) -> None:
         for i, value in enumerate(q_rad):
-            setattr(self._setpoint, SETPOINT_NAMES[i], value)
-        self._enable.input_int_register_0 = enable
+            setattr(self._command, SETPOINT_NAMES[i], value)
+        self._command.input_int_register_0 = enable
         # El cliente oficial devuelve False/None si no puede enviar, pero `sock.sendall` sí lanza
         # OSError (p. ej. conexión reiniciada).
         try:
-            sent = self._rtde.send(self._setpoint) and self._rtde.send(self._enable)
+            sent = self._rtde.send(self._command)
         except OSError as exc:
             raise _StreamLostError(f"se perdió el stream RTDE: {exc}") from exc
         if not sent:
