@@ -83,13 +83,11 @@ class UrFollowerCore:
         launch: Launcher = spawn_worker,
         rtde_factory: Callable[[str], RtdeConnection] = _rtde_connection,
         dashboard_factory: Callable[[str], Dashboard] = DashboardClient,
-        clock: Callable[[], int] = now_ns,
     ) -> None:
         self._config = config
         self._launch = launch
         self._rtde_factory = rtde_factory
         self._dashboard_factory = dashboard_factory
-        self._clock = clock
         self._shared: SharedState | None = None
         self._worker: Worker | None = None
 
@@ -198,7 +196,8 @@ class UrFollowerCore:
             raise ValueError(f"consigna con valores no finitos: {q}")
         shared, worker = self._connected()
         self._raise_if_stopped(shared, alive=worker.is_alive())
-        shared.write_target(q, self._clock())
+        # El mismo reloj que usa el proceso de streaming para la edad de la consigna.
+        shared.write_target(q, now_ns())
 
     def get_joints(self) -> list[float]:
         """Última `actual_q` medida, en rad.

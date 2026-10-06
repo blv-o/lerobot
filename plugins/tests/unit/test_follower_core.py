@@ -4,6 +4,7 @@ El bucle del robot ya está probado en test_streaming.py. Aquí corre en un hilo
 spawn real) con los dobles de test, y los tests esperan a un estado, nunca un tiempo fijo.
 """
 
+import inspect
 import math
 import multiprocessing
 import threading
@@ -194,6 +195,12 @@ def test_send_joints_rejects_wrong_size_and_non_finite(rig: Rig, bad: list[float
         core.send_joints(bad)
     assert core.status().state == FollowerState.WAIT  # nunca llegó al robot
     core.disconnect()
+
+
+def test_target_clock_cannot_be_injected() -> None:
+    """El proceso de streaming compara el t_ns de cada consigna con su propio `now_ns()`: otro
+    reloj en el padre rompería la edad de la consigna (HOLD/STOP) sin avisar."""
+    assert "clock" not in inspect.signature(UrFollowerCore).parameters
 
 
 def test_send_joints_before_connect_raises() -> None:
