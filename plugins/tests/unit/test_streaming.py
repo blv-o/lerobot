@@ -7,10 +7,12 @@ de LeRobot se inyectan como acciones antes de un paquete concreto. Nada duerme.
 import logging
 import math
 import multiprocessing
+import threading
 from collections.abc import Callable
 from typing import Any
 
 import pytest
+import ur_core.streaming as streaming_module
 from fakes import (
     RUNTIME_STOPPED,
     SAFETY_PROTECTIVE_STOP,
@@ -23,6 +25,8 @@ from fakes import (
     packet,
     packets,
 )
+from ur_core import FollowerStoppedError
+from ur_core.clock import now_ns
 from ur_core.config import FollowerConfig, ServoConfig, WatchdogConfig
 from ur_core.follower_script import render_follower_script
 from ur_core.streaming import ARM_TIMEOUT_S, PERIOD_WINDOW_S, FollowerState, SharedState, StreamingLoop
@@ -447,6 +451,57 @@ def test_loop_never_waits_for_a_lock_held_by_the_parent() -> None:
     assert len(rig.rtde.written_q()) == 40  # exactamente uno por paquete recibido
     assert rig.rtde.written_q()[-1] == pytest.approx(later)
     assert "stream" in rig.reason
+
+
+@pytest.mark.timeout(10)
+@pytest.mark.parametrize(
+    "parent_call",
+    [
+        lambda shared: shared.write_target(START_Q_RAD, 0),
+        lambda shared: shared.read_measured(),
+        lambda shared: shared.read_state(),
+        lambda shared: shared.read_period_stats(),
+    ],
+    ids=["write_target", "read_measured", "read_state", "read_period_stats"],
+)
+def test_parent_never_waits_forever_for_a_lock_left_by_a_dead_child(
+    monkeypatch: pytest.MonkeyPatch, parent_call: Callable[[SharedState], Any]
+) -> None:
+    """Un `multiprocessing.Lock` no se libera si su dueño muere con él cogido: LeRobot se
+    quedaría colgado para siempre en lugar de parar con un motivo."""
+    monkeypatch.setattr(streaming_module, "LOCK_TIMEOUT_S", 0.05)
+    shared = SharedState()
+    assert shared._lock.acquire(block=False)  # el hijo murió con el Lock cogido
+    t0_ns = now_ns()
+    with pytest.raises(FollowerStoppedError, match="memoria compartida"):
+        parent_call(shared)
+    assert (now_ns() - t0_ns) / 1e9 < 1.0
+
+
+def test_loop_completes_its_shutdown_even_if_the_parent_died_holding_the_lock(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """El hijo siempre termina su cierre (enable=0, `stop`, desconexión); si se quedara esperando
+    al Lock, sería un proceso huérfano con el programa del robot habilitado."""
+    monkeypatch.setattr(streaming_module, "LOCK_TIMEOUT_S", 0.05)
+    near = offset(START_Q_RAD, 0, 0.005)
+
+    def parent_dies_holding_lock(rig: Rig) -> None:
+        assert rig.shared._lock.acquire(block=False)
+        rig.parent_is_alive = False
+
+    rig = Rig(packets(30), actions={5: send_at(near), 10: parent_dies_holding_lock})
+    serving = threading.Thread(target=rig.loop.serve, daemon=True)
+    with caplog.at_level(logging.ERROR):
+        serving.start()
+        serving.join(timeout=5)
+    assert not serving.is_alive(), "el bucle se quedó esperando al Lock"
+    assert rig.states() == [FollowerState.WAIT, FollowerState.RUN, FollowerState.STOP]
+    assert "proceso padre" in rig.loop.events[-1][2]
+    assert rig.rtde.written_enable()[-1] == 0
+    assert rig.dashboard.commands == ["stop"]
+    assert not rig.rtde.is_connected()
+    assert "memoria compartida" in caplog.text
 
 
 def test_period_stats_published_once_per_second_also_after_the_window_fills() -> None:

@@ -26,6 +26,7 @@ from ur_core.streaming import (
     Dashboard,
     FollowerStartError,
     FollowerState,
+    FollowerStoppedError,
     RtdeConnection,
     SharedState,
     streaming_main,
@@ -37,10 +38,6 @@ log = logging.getLogger("ur_core.follower")
 CONNECT_MARGIN_S = 15.0
 JOIN_MARGIN_S = 2.0
 POLL_S = 0.01
-
-
-class FollowerStoppedError(RuntimeError):
-    """El follower ya paró (motivo en el mensaje); hay que relanzar el comando desde el TP."""
 
 
 @dataclass(frozen=True)
@@ -166,7 +163,11 @@ class UrFollowerCore:
         deadline_ns = now_ns() + round((ARM_TIMEOUT_S + CONNECT_MARGIN_S) * 1e9)
         while True:
             alive = worker.is_alive()  # antes de leer el estado: si murió, el STOP ya está publicado
-            state, reason = shared.read_state()
+            try:
+                state, reason = shared.read_state()
+            except FollowerStoppedError as exc:  # murió con el Lock cogido
+                self._abort()
+                raise FollowerStartError(str(exc)) from exc
             if state == FollowerState.WAIT:
                 return
             if state == FollowerState.STOP:

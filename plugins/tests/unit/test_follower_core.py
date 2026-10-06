@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 import ur_core.follower as follower_module
+import ur_core.streaming as streaming_module
 from fakes import (
     START_Q_RAD,
     FakeDashboard,
@@ -139,6 +140,25 @@ def test_connect_gives_up_and_terminates_a_stuck_worker(monkeypatch: pytest.Monk
         core.connect()
     assert workers[0].terminated
     release.set()
+
+
+@pytest.mark.timeout(10)
+def test_connect_gives_up_if_the_process_died_holding_the_shared_memory_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(streaming_module, "LOCK_TIMEOUT_S", 0.05)
+
+    def launch(_follower: FollowerConfig, _tol_rad: float, shared: SharedState) -> ThreadWorker:
+        assert shared._lock.acquire(block=False)  # murió con el Lock cogido
+        worker = ThreadWorker(target=lambda: None, daemon=True)
+        worker.start()
+        worker.join()
+        return worker
+
+    core = UrFollowerCore(CONFIG, launch=launch)
+    with pytest.raises(FollowerStartError, match="memoria compartida"):
+        core.connect()
+    assert not core.is_connected
 
 
 def test_connect_twice_does_not_launch_a_second_worker(rig: Rig) -> None:

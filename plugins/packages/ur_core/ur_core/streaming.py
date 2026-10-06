@@ -13,7 +13,8 @@ import logging
 import math
 import multiprocessing
 from collections import deque
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from enum import IntEnum
 from multiprocessing.context import BaseContext
 from typing import Any, Protocol
@@ -35,6 +36,9 @@ RTDE_PORT = 30004
 ARM_TIMEOUT_S = 6.0
 PERIOD_WINDOW_S = 10.0  # ventana de p50/p99 del periodo
 REASON_BYTES = 256
+# Un `multiprocessing.Lock` no se libera si su dueño muere con él cogido. Se tiene microsegundos:
+# no conseguirlo en este tiempo significa que el otro proceso murió con él.
+LOCK_TIMEOUT_S = 1.0
 
 OUTPUT_NAMES = [
     "actual_q",
@@ -96,6 +100,13 @@ class FollowerStartError(RuntimeError):
     """El follower no llegó a quedar armado (WAIT); el motivo dice qué falló."""
 
 
+class FollowerStoppedError(RuntimeError):
+    """El follower ya paró (motivo en el mensaje); hay que relanzar el comando desde el TP.
+
+    Vive aquí y no en `follower.py` porque también la lanza `SharedState` en el lado del padre.
+    """
+
+
 class _StreamLostError(Exception):
     pass
 
@@ -134,6 +145,10 @@ class SharedState:
     bucle se quedaría decenas de ms sin escribir al robot. Si está ocupado, el hijo usa la
     consigna del ciclo anterior y publica la posición en el siguiente. Las transiciones de
     estado sí esperan: son pocas por sesión y el padre debe verlas siempre.
+
+    Ninguna espera es indefinida (`LOCK_TIMEOUT_S`): si el otro proceso murió con el `Lock`
+    cogido, el padre lanza `FollowerStoppedError` en vez de colgar LeRobot, y el hijo lo registra
+    y sigue, porque siempre tiene que completar su cierre.
     """
 
     def __init__(self, ctx: BaseContext | None = None) -> None:
@@ -148,9 +163,22 @@ class SharedState:
         self._period_stats_s = ctx.RawArray("d", 3)
         self._stop_requested = ctx.RawValue("b", 0)
 
+    @contextmanager
+    def _locked(self) -> Iterator[None]:
+        """Espera del padre al `Lock`, con límite."""
+        if not self._lock.acquire(timeout=LOCK_TIMEOUT_S):
+            raise FollowerStoppedError(
+                f"memoria compartida bloqueada más de {LOCK_TIMEOUT_S} s: "
+                "el proceso del follower probablemente murió con ella cogida"
+            )
+        try:
+            yield
+        finally:
+            self._lock.release()
+
     def write_target(self, q_rad: Sequence[float], t_ns: int) -> None:
         # Consigna, secuencia y t_ns juntos: el hijo nunca ve un t_ns nuevo con una consigna vieja.
-        with self._lock:
+        with self._locked():
             self._target[:] = list(q_rad)
             self._target_seq.value += 1
             self._target_t_ns.value = t_ns
@@ -177,17 +205,28 @@ class SharedState:
             self._lock.release()
 
     def read_measured(self) -> list[float]:
-        with self._lock:
+        with self._locked():
             return list(self._measured)
 
     def publish_state(self, state: FollowerState, reason: str = "") -> None:
         data = reason.encode("utf-8")[: REASON_BYTES - 1]
-        with self._lock:
+        if not self._lock.acquire(timeout=LOCK_TIMEOUT_S):
+            log.error(
+                "follower: no se pudo publicar el estado %s (%s): memoria compartida bloqueada "
+                "más de %s s (¿el proceso padre murió con ella cogida?)",
+                state.name,
+                reason,
+                LOCK_TIMEOUT_S,
+            )
+            return
+        try:
             self._state.value = state
             self._reason.value = data
+        finally:
+            self._lock.release()
 
     def read_state(self) -> tuple[FollowerState, str]:
-        with self._lock:
+        with self._locked():
             return FollowerState(self._state.value), self._reason.value.decode("utf-8", errors="ignore")
 
     def try_write_period_stats(self, p50_s: float, p99_s: float, max_s: float) -> bool:
@@ -200,7 +239,7 @@ class SharedState:
             self._lock.release()
 
     def read_period_stats(self) -> tuple[float, float, float]:
-        with self._lock:
+        with self._locked():
             p50_s, p99_s, max_s = self._period_stats_s
             return p50_s, p99_s, max_s
 
