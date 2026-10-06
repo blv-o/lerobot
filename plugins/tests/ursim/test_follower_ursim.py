@@ -292,8 +292,15 @@ def test_killed_streaming_process_is_stopped_by_robot_watchdog() -> None:
         q0 = core.get_joints()
         core.send_joints(q0)
         wait_until(lambda: core.status().state == FollowerState.RUN, 2.0, "RUN")
-        wait_until(program_running, 2.0, "programa en marcha")
-        core.send_joints(q0)  # consigna fresca: que no pare por su cuenta antes de matarlo
+
+        def running_while_fed() -> bool:
+            # Cada sondeo abre una conexión RTDE y puede tardar: sin consignas, el hijo pararía
+            # por su cuenta (watchdog.stop_s) antes de matarlo.
+            core.send_joints(q0)
+            return program_running()
+
+        wait_until(running_while_fed, 2.0, "programa en marcha")
+        core.send_joints(q0)
         processes[0].kill()
         killed_ns = now_ns()
         processes[0].join(timeout=5)
