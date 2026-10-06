@@ -91,6 +91,19 @@ def test_fake_rtde_setup_timeout_raises_like_the_official_client(monkeypatch: py
             con.send_input_setup(["input_int_register_0"], ["INT32"])
 
 
+def test_fake_rtde_inputs_in_use_raises_like_the_official_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Con un registro ya ocupado el robot responde `IN_USE` y el cliente real lanza ValueError
+    al leer la receta, en vez de devolver None."""
+    real = RTDE("127.0.0.1")
+    monkeypatch.setattr(
+        real, "_RTDE__sendAndReceive", lambda cmd, *_args: real._RTDE__on_packet(cmd, b"DOUBLE,IN_USE")
+    )
+    fake = FakeRTDE([], fail={"inputs_in_use"})
+    for con in (real, fake):
+        with pytest.raises(ValueError, match="already in use"):
+            con.send_input_setup(["input_double_register_0", "input_int_register_0"], ["DOUBLE", "INT32"])
+
+
 def test_fake_rtde_simulates_setup_failures_as_return_values() -> None:
     con = FakeRTDE([], fail={"send_input_setup", "send_output_setup", "send_start"})
     assert con.send_input_setup(["input_int_register_0"], ["INT32"]) is None

@@ -136,8 +136,10 @@ class UrFollowerCore:
 
     def _read_pose(self) -> list[float]:
         con = self._rtde_factory(self._config.follower.ip)
-        con.connect()
         try:
+            # Dentro del `try`: el cliente oficial abre el socket antes de negociar el protocolo,
+            # y si la negociación falla lo deja abierto. Su `disconnect()` es seguro sin socket.
+            con.connect()
             try:
                 output_ok = con.send_output_setup(
                     ["actual_q"], ["VECTOR6D"], frequency=self._config.follower.servo.hz

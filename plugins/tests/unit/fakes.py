@@ -76,10 +76,12 @@ class FakeRTDE:
     - `fail` simula los fallos que el cliente real devuelve como valor, no como excepción:
       `send_input_setup` → `None`, `send_output_setup`/`send_start` → `False`.
       Y los que lanza: `connect` → `ConnectionRefusedError`; `connect_protocol` → `RTDEException`
-      (el puerto acepta pero el controlador no contesta, p. ej. URSim arrancando);
-      `setup_timeout` → `AttributeError` en `send_output_setup`/`send_input_setup` (el cliente
-      real hace `result.types` sobre una respuesta que no llegó); `send_oserror` →
-      `ConnectionResetError` en `send` (lo lanza `sock.sendall`).
+      con el socket ya abierto (el puerto acepta pero el controlador no negocia, p. ej. URSim
+      arrancando); `setup_timeout` → `AttributeError` en `send_output_setup`/`send_input_setup`
+      (el cliente real hace `result.types` sobre una respuesta que no llegó); `inputs_in_use` →
+      `ValueError` en `send_input_setup` (el cliente real al ver `IN_USE` en la respuesta);
+      `start_lost` → `RTDEException` en `send_start` (conexión perdida en plena configuración);
+      `send_oserror` → `ConnectionResetError` en `send` (lo lanza `sock.sendall`).
     """
 
     def __init__(
@@ -107,6 +109,7 @@ class FakeRTDE:
         if "connect" in self._fail:
             raise ConnectionRefusedError("FakeRTDE: conexión rechazada")
         if "connect_protocol" in self._fail:
+            self.connected = True  # el cliente real ya abrió el socket cuando falla la negociación
             raise RTDEException("Unable to negotiate protocol version")
         self.connected = True
 
@@ -126,6 +129,8 @@ class FakeRTDE:
 
     def send_input_setup(self, variables: list[str], types: list[str] = []) -> SimpleNamespace | None:  # noqa: B006
         self._raise_if_setup_times_out()
+        if "inputs_in_use" in self._fail:
+            raise ValueError("An input parameter is already in use.")
         if "send_input_setup" in self._fail:
             return None
         recipe_id = len(self.input_setups) + 1
@@ -134,6 +139,9 @@ class FakeRTDE:
         return SimpleNamespace(recipe_id=recipe_id, **dict.fromkeys(variables))
 
     def send_start(self) -> bool:
+        if "start_lost" in self._fail:
+            self.connected = False
+            raise RTDEException(" _recv() Connection lost ")
         if "send_start" in self._fail:
             return False
         self.started = True

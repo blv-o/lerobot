@@ -389,6 +389,24 @@ def test_check_start_reports_robot_not_answering_the_rtde_setup() -> None:
     assert "RTDE" in errors[0] and "no respondió" in errors[0]
 
 
+def test_check_start_closes_the_rtde_socket_when_negotiation_fails() -> None:
+    """El cliente oficial abre el socket antes de negociar el protocolo: si falla, hay que cerrarlo."""
+    connections: list[FakeRTDE] = []
+
+    def rtde_factory(_ip: str) -> FakeRTDE:
+        connections.append(FakeRTDE(packets(1), hz=1000, fail=("connect_protocol",)))
+        return connections[-1]
+
+    def dashboard_factory(_ip: str) -> FakeDashboard:
+        return FakeDashboard({"is in remote control": "true"})
+
+    errors = UrFollowerCore(
+        CONFIG, rtde_factory=rtde_factory, dashboard_factory=dashboard_factory
+    ).check_start()
+    assert len(errors) == 1 and "RTDE" in errors[0]
+    assert not connections[0].connected
+
+
 def test_start_prompt_tells_what_to_prepare_on_the_pendant() -> None:
     prompt = UrFollowerCore(CONFIG).start_prompt()
     assert "Remote Control" in prompt

@@ -185,7 +185,9 @@ def test_arm_fails_if_heartbeat_never_changes() -> None:
         ("setup_timeout", "no respond"),
         ("send_output_setup", "salida"),
         ("send_input_setup", "entrada"),
+        ("inputs_in_use", "bus de campo"),
         ("send_start", "iniciar"),
+        ("start_lost", "durante la configuración"),
     ],
 )
 def test_rtde_setup_failures_stop_with_reason_and_no_script(fail: str, fragment: str) -> None:
