@@ -508,6 +508,23 @@ def test_shutdown_resends_the_last_command_with_enable_0() -> None:
     assert _written_q(last) == _written_q(before)
 
 
+def test_reason_says_when_enable_0_could_not_be_written(caplog: pytest.LogCaptureFixture) -> None:
+    """Sin enable=0 el programa sigue habilitado hasta que lo pare el watchdog del robot: tiene
+    que saberlo quien lee el motivo, no solo quien mira el log."""
+    near = offset(START_Q_RAD, 0, 0.005)
+
+    def stop_with_the_connection_broken(rig: Rig) -> None:
+        rig.rtde._fail.add("send_oserror")
+        rig.shared.request_stop()
+
+    with caplog.at_level(logging.ERROR):
+        rig = Rig(packets(30), actions={5: send_at(near), 10: stop_with_the_connection_broken}).serve()
+    assert rig.reason == (
+        "parada pedida (disconnect) (enable=0 no se pudo escribir; lo para el watchdog del robot)"
+    )
+    assert "enable=0" in caplog.text
+
+
 def test_shutdown_writes_nothing_if_no_command_was_ever_written(caplog: pytest.LogCaptureFixture) -> None:
     """Sin ningún comando escrito no hay nada habilitado, y el cliente oficial no puede empaquetar
     una receta con campos sin valor (lanza ValueError)."""

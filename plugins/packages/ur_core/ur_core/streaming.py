@@ -448,6 +448,7 @@ class StreamingLoop:
                 self._write(self._last_cmd_rad, enable=0)
             except Exception:
                 log.exception("follower: no se pudo escribir enable=0 (el watchdog del robot lo parará)")
+                self._reason += " (enable=0 no se pudo escribir; lo para el watchdog del robot)"
         if self._script_sent:
             try:
                 self._backup_stop()
