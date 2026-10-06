@@ -8,7 +8,11 @@ _PENDING = "Pendiente de implementar"
 
 
 class UrFollower(Robot):
-    """Adaptador entre LeRobot y `ur_core.UrFollowerCore` (se completa en F3)."""
+    """Adaptador entre LeRobot y `ur_core.UrFollowerCore`, pendiente de implementar.
+
+    Hoy solo existe para que LeRobot encuentre `--robot.type=ur_follower`; cada método lanza
+    NotImplementedError.
+    """
 
     config_class = UrFollowerConfig
     name = "ur_follower"

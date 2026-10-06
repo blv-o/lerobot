@@ -8,7 +8,11 @@ _PENDING = "Pendiente de implementar"
 
 
 class UrLeader(Teleoperator):
-    """Adaptador entre LeRobot y `ur_core.UrLeaderCore` (se completa en F3)."""
+    """Adaptador entre LeRobot y `ur_core.UrLeaderCore`, pendiente de implementar.
+
+    Hoy solo existe para que LeRobot encuentre `--teleop.type=ur_leader`; cada método lanza
+    NotImplementedError.
+    """
 
     config_class = UrLeaderConfig
     name = "ur_leader"
