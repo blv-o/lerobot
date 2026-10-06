@@ -36,6 +36,11 @@ VIDEO_SIZE = (640, 480)
 ENCODER_THREADS = 2  # el valor que recomienda lerobot-record para la codificación en directo
 # servo.hz → (p99 máximo, máximo), en s.
 LIMITS_S = {125: (0.010, 0.016), 500: (0.0025, 0.004)}
+# Solo los límites de jitter: una parada o un fallo al conectar a 500 Hz siguen siendo fallos.
+URSIM_500_HZ_XFAIL = (
+    "URSim en Docker se salta ciclos a 500 Hz (su `timestamp` salta 4–6 ms); "
+    "el límite de 4 ms se comprueba con un UR real"
+)
 
 pytestmark = pytest.mark.timing
 
@@ -88,20 +93,7 @@ def video_load(request: pytest.FixtureRequest) -> Iterator[None]:
 
 
 @pytest.mark.parametrize("video_load", [False, True], ids=["sin_video", "con_video"], indirect=True)
-@pytest.mark.parametrize(
-    "servo_hz",
-    [
-        125,
-        pytest.param(
-            500,
-            marks=pytest.mark.xfail(
-                reason="URSim en Docker se salta ciclos a 500 Hz (su `timestamp` salta 4–6 ms); "
-                "el límite de 4 ms se comprueba con un UR real",
-                strict=False,
-            ),
-        ),
-    ],
-)
+@pytest.mark.parametrize("servo_hz", [125, 500])
 def test_loop_period_jitter(servo_hz: int, video_load: None) -> None:
     servo = dataclasses.replace(CONFIG.follower.servo, hz=servo_hz)
     config = dataclasses.replace(CONFIG, follower=dataclasses.replace(CONFIG.follower, servo=servo))
@@ -127,5 +119,8 @@ def test_loop_period_jitter(servo_hz: int, video_load: None) -> None:
         f"(límite {p99_limit_s * 1e3:.1f}), máx {status.period_max_s * 1e3:.2f} ms (límite {max_limit_s * 1e3:.1f})"
     )
     assert status.state != FollowerState.STOP, status.stop_reason
+    within_limits = worst_p99_s < p99_limit_s and status.period_max_s < max_limit_s
+    if servo_hz == 500 and not within_limits:
+        pytest.xfail(URSIM_500_HZ_XFAIL)
     assert worst_p99_s < p99_limit_s
     assert status.period_max_s < max_limit_s
