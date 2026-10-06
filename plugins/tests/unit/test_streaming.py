@@ -202,6 +202,19 @@ def test_rtde_setup_failures_stop_with_reason_and_no_script(fail: str, fragment:
     assert "stop" not in rig.dashboard.commands
 
 
+def test_our_own_attribute_error_during_setup_is_not_blamed_on_the_robot() -> None:
+    """Solo el AttributeError del cliente oficial (respuesta que no llegó) significa "el robot no
+    respondió"; uno de nuestro código es un error inesperado y tiene que verse como tal."""
+    rig = Rig(packets(3))
+
+    def bug() -> Any:
+        raise AttributeError("bug nuestro")
+
+    rig.loop._input_setup = bug
+    rig.serve()
+    assert rig.reason.startswith("error inesperado") and "bug nuestro" in rig.reason
+
+
 def test_arm_refuses_robot_not_running() -> None:
     rig = Rig(packets(3, robot_mode=5)).serve()  # IDLE: frenos puestos
     assert rig.state == FollowerState.STOP

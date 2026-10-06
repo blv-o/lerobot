@@ -358,21 +358,12 @@ class StreamingLoop:
             raise FollowerStartError(
                 f"no se puede conectar por RTDE a {ip}: {exc} (¿el controlador todavía está arrancando?)"
             ) from exc
-        try:
-            # El cliente oficial hace `result.types` sobre la respuesta sin comprobar que llegó:
-            # si el robot no contesta a tiempo lanza AttributeError en vez de devolver un error.
-            if not self._rtde.send_output_setup(OUTPUT_NAMES, OUTPUT_TYPES, frequency=self._cfg.servo.hz):
-                raise FollowerStartError(f"RTDE: el robot rechazó la receta de salida {OUTPUT_NAMES}")
-            self._command = self._input_setup()
-            if not self._rtde.send_start():
-                raise FollowerStartError("RTDE: no se pudo iniciar la sincronización")
-        except AttributeError as exc:
-            raise FollowerStartError(f"el robot {ip} no respondió a la configuración RTDE") from exc
-        except (RTDEException, OSError) as exc:
-            # `sock.sendall` lanza OSError; el cliente lanza RTDEException si el robot cierra.
-            raise FollowerStartError(
-                f"RTDE: se perdió la conexión con {ip} durante la configuración: {exc}"
-            ) from exc
+        servo_hz = self._cfg.servo.hz
+        if not self._rtde_setup(self._rtde.send_output_setup, OUTPUT_NAMES, OUTPUT_TYPES, frequency=servo_hz):
+            raise FollowerStartError(f"RTDE: el robot rechazó la receta de salida {OUTPUT_NAMES}")
+        self._command = self._input_setup()
+        if not self._rtde_setup(self._rtde.send_start):
+            raise FollowerStartError("RTDE: no se pudo iniciar la sincronización")
         try:
             self._dashboard.connect()
         except OSError as exc:
@@ -403,13 +394,31 @@ class StreamingLoop:
         self._shared.write_measured(pkt.actual_q)
         self._transition(FollowerState.WAIT)
 
+    def _rtde_setup(self, call: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        """Una llamada de configuración del cliente oficial, con sus fallos como FollowerStartError.
+
+        Envuelve solo la llamada a la librería: un AttributeError de nuestro código no es "el robot
+        no respondió", es un error inesperado.
+        """
+        try:
+            return call(*args, **kwargs)
+        except AttributeError as exc:
+            # El cliente oficial hace `result.types` sobre la respuesta sin comprobar que llegó:
+            # si el robot no contesta a tiempo lanza AttributeError en vez de devolver un error.
+            raise FollowerStartError(f"el robot {self._cfg.ip} no respondió a la configuración RTDE") from exc
+        except (RTDEException, OSError) as exc:
+            # `sock.sendall` lanza OSError; el cliente lanza RTDEException si el robot cierra.
+            raise FollowerStartError(
+                f"RTDE: se perdió la conexión con {self._cfg.ip} durante la configuración: {exc}"
+            ) from exc
+
     def _input_setup(self) -> Any:
         busy = (
             "RTDE: registros de entrada input_double_register_0..5 / input_int_register_0 "
             "no disponibles (¿los usa otro cliente RTDE o un bus de campo?)"
         )
         try:
-            command = self._rtde.send_input_setup(COMMAND_NAMES, COMMAND_TYPES)
+            command = self._rtde_setup(self._rtde.send_input_setup, COMMAND_NAMES, COMMAND_TYPES)
         except ValueError as exc:
             # El cliente oficial lanza ValueError al leer `IN_USE` en la respuesta, en vez de
             # devolver None. Solo aquí: en la receta de salida significaría otra cosa.

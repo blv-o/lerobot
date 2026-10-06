@@ -4,12 +4,14 @@ El bucle del robot ya está probado en test_streaming.py. Aquí corre en un hilo
 spawn real) con los dobles de test, y los tests esperan a un estado, nunca un tiempo fijo.
 """
 
+import dataclasses
 import inspect
 import math
 import multiprocessing
 import threading
 import time
 from collections.abc import Callable, Iterator
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -418,7 +420,10 @@ def test_real_spawned_process_arms_runs_and_stops_on_disconnect() -> None:
 
 
 def make_core(
-    remote: str = "true", q_rad: list[float] = START_Q_RAD, **fail: tuple[str, ...]
+    remote: str = "true",
+    q_rad: list[float] = START_Q_RAD,
+    config: TeleopConfig = CONFIG,
+    **fail: tuple[str, ...],
 ) -> UrFollowerCore:
     def rtde_factory(_ip: str) -> FakeRTDE:
         return FakeRTDE(packets(1, q_rad=q_rad), hz=1000, fail=fail.get("rtde", ()))
@@ -426,7 +431,7 @@ def make_core(
     def dashboard_factory(_ip: str) -> FakeDashboard:
         return FakeDashboard({"is in remote control": remote}, fail=fail.get("dashboard", ()))
 
-    return UrFollowerCore(CONFIG, rtde_factory=rtde_factory, dashboard_factory=dashboard_factory)
+    return UrFollowerCore(config, rtde_factory=rtde_factory, dashboard_factory=dashboard_factory)
 
 
 def test_check_start_ok_in_remote_control_and_start_pose() -> None:
@@ -455,6 +460,15 @@ def test_check_start_reports_robot_not_answering_the_rtde_setup() -> None:
     errors = make_core(rtde=("setup_timeout",)).check_start()
     assert len(errors) == 1
     assert "RTDE" in errors[0] and "no respondió" in errors[0]
+
+
+def test_check_start_does_not_blame_the_robot_for_our_own_attribute_error() -> None:
+    """Solo el AttributeError del cliente oficial significa "el robot no respondió"."""
+    broken = dataclasses.replace(
+        CONFIG, follower=dataclasses.replace(CONFIG.follower, servo=SimpleNamespace())
+    )
+    with pytest.raises(AttributeError):
+        make_core(config=broken).check_start()
 
 
 def test_check_start_closes_the_rtde_socket_when_negotiation_fails() -> None:

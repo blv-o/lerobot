@@ -142,15 +142,14 @@ class UrFollowerCore:
             dashboard.close()
 
     def _read_pose(self) -> list[float]:
+        servo_hz = self._config.follower.servo.hz  # fuera del `try` del AttributeError: es código nuestro
         con = self._rtde_factory(self._config.follower.ip)
         try:
             # Dentro del `try`: el cliente oficial abre el socket antes de negociar el protocolo,
             # y si la negociación falla lo deja abierto. Su `disconnect()` es seguro sin socket.
             con.connect()
             try:
-                output_ok = con.send_output_setup(
-                    ["actual_q"], ["VECTOR6D"], frequency=self._config.follower.servo.hz
-                )
+                output_ok = con.send_output_setup(["actual_q"], ["VECTOR6D"], frequency=servo_hz)
             except AttributeError as exc:
                 # El cliente oficial hace `result.types` sobre la respuesta sin comprobar que llegó.
                 raise RTDEException("el robot no respondió a la configuración RTDE") from exc
