@@ -349,6 +349,51 @@ def test_range_limits_are_inclusive(tmp_path: Path, dotted: str, value: Any) -> 
     load(tmp_path, data)
 
 
+@pytest.mark.parametrize(
+    ("dotted", "value"),
+    [
+        ("follower.servo.max_joint_speed_deg_s", -60),
+        ("follower.servo.max_joint_speed_deg_s", 0),
+        ("follower.servo.target_period_ms", -1),
+        ("follower.servo.target_period_ms", 0),
+        ("start_tolerance_deg", -1),
+        ("start_tolerance_deg", 0),
+        ("leader.timeout_ms", -1),
+        ("leader.timeout_ms", 0),
+    ],
+)
+def test_non_positive_value_is_rejected(tmp_path: Path, dotted: str, value: Any) -> None:
+    """Una velocidad negativa haría derivar el follower sin parar y un periodo 0 rompe el bucle."""
+    data = base()
+    set_path(data, dotted, value)
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, data)
+    assert exc.value.field == dotted
+
+
+@pytest.mark.parametrize(
+    ("dotted", "value"),
+    [
+        ("follower.servo.max_joint_speed_deg_s", float("nan")),
+        ("follower.servo.max_joint_speed_deg_s", float("inf")),
+        ("follower.servo.hz", float("nan")),
+        ("follower.servo.hz", float("inf")),
+        ("follower.servo.gain", float("nan")),
+        ("follower.servo.gain", float("inf")),
+        ("start_pose_deg", [0, -90, float("nan"), -90, -90, 0]),
+        ("start_pose_deg", [0, -90, 90, -90, -90, float("-inf")]),
+    ],
+)
+def test_non_finite_value_is_rejected(tmp_path: Path, dotted: str, value: Any) -> None:
+    """`.nan`/`.inf` en el YAML son floats válidos para Python y pasarían las comparaciones."""
+    data = base()
+    set_path(data, dotted, value)
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, data)
+    assert exc.value.field == dotted
+    assert "finito" in exc.value.reason
+
+
 @pytest.mark.parametrize("side", ["leader", "follower"])
 def test_ip_must_be_text(tmp_path: Path, side: str) -> None:
     data = base()

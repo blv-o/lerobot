@@ -214,16 +214,16 @@ def _validate(c: dict[str, Any]) -> None:
     _check_positive("follower.servo.hz", servo["hz"])
     _check_range("follower.servo.gain", servo["gain"], GAIN_RANGE)
     _check_range("follower.servo.lookahead_s", servo["lookahead_s"], LOOKAHEAD_RANGE_S)
-    _check_number("follower.servo.max_joint_speed_deg_s", servo["max_joint_speed_deg_s"])
-    _check_number("follower.servo.target_period_ms", servo["target_period_ms"])
+    _check_positive("follower.servo.max_joint_speed_deg_s", servo["max_joint_speed_deg_s"])
+    _check_positive("follower.servo.target_period_ms", servo["target_period_ms"])
     _check_watchdog(watchdog)
     _check_start_pose(c["start_pose_deg"])
-    _check_number("start_tolerance_deg", c["start_tolerance_deg"])
+    _check_positive("start_tolerance_deg", c["start_tolerance_deg"])
 
 
 def _check_leader(leader: dict[str, Any]) -> None:
     # El tipo ya se validó en _leader_schema.
-    _check_number("leader.timeout_ms", leader["timeout_ms"])
+    _check_positive("leader.timeout_ms", leader["timeout_ms"])
     if leader["type"] in UR_TYPES:
         _check_text("leader.ip", leader["ip"])
         _check_positive("leader.rtde_hz", leader["rtde_hz"])
@@ -249,8 +249,9 @@ def _check_text(field: str, value: Any) -> None:
 
 def _check_number(field: str, value: Any) -> None:
     # bool es subclase de int en Python, pero `gain: true` es un error del YAML, no un 1.
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        raise ConfigError(field, f"debe ser un número (vale {value!r})")
+    # `.nan` pasa cualquier comparación (`nan <= 0` es False) y `.inf` cualquier `> 0`.
+    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+        raise ConfigError(field, f"debe ser un número finito (vale {value!r})")
 
 
 def _check_positive(field: str, value: Any) -> None:
@@ -279,9 +280,8 @@ def _check_watchdog(watchdog: dict[str, Any]) -> None:
 def _check_start_pose(pose: Any) -> None:
     if not isinstance(pose, list) or len(pose) != N_JOINTS:
         raise ConfigError("start_pose_deg", f"debe ser una lista de {N_JOINTS} ángulos (vale {pose!r})")
-    for i, value in enumerate(pose):
-        if isinstance(value, bool) or not isinstance(value, int | float):
-            raise ConfigError("start_pose_deg", f"el valor {i} no es un número ({value!r})")
+    for value in pose:
+        _check_number("start_pose_deg", value)
 
 
 def _build_leader(leader: dict[str, Any]) -> UrLeaderConfig | LowCostLeaderConfig:
