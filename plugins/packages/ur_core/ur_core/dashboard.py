@@ -9,10 +9,12 @@ bienvenida al conectar.
 import socket
 
 DASHBOARD_PORT = 29999
+# Por operación de socket (conexión, cada lectura), no por comando completo.
+DASHBOARD_TIMEOUT_S = 5.0
 
 
 class DashboardClient:
-    def __init__(self, host: str, port: int = DASHBOARD_PORT, timeout_s: float = 5.0) -> None:
+    def __init__(self, host: str, port: int = DASHBOARD_PORT, timeout_s: float = DASHBOARD_TIMEOUT_S) -> None:
         self.host = host
         self.port = port
         self.timeout_s = timeout_s

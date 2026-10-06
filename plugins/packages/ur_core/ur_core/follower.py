@@ -18,10 +18,11 @@ from rtde.rtde import RTDEException
 
 from ur_core.clock import now_ns
 from ur_core.config import N_JOINTS, UR_TYPES, FollowerConfig, TeleopConfig
-from ur_core.dashboard import DashboardClient
+from ur_core.dashboard import DASHBOARD_TIMEOUT_S, DashboardClient
 from ur_core.startup import pose_errors
 from ur_core.streaming import (
     ARM_TIMEOUT_S,
+    LOCK_TIMEOUT_S,
     RTDE_PORT,
     Dashboard,
     FollowerStartError,
@@ -37,6 +38,12 @@ log = logging.getLogger("ur_core.follower")
 # Además de ARM_TIMEOUT_S: conexión RTDE + Dashboard y arranque del proceso spawn (importa todo).
 CONNECT_MARGIN_S = 15.0
 JOIN_MARGIN_S = 2.0
+# Peor cierre del proceso de streaming una vez decidida la parada: el `receive` en curso y el `send`
+# de enable=0 (hasta `rtde.DEFAULT_TIMEOUT` cada uno en el cliente oficial), el `stop` por el
+# Dashboard (conexión, bienvenida y respuesta: hasta `DASHBOARD_TIMEOUT_S` cada una; enviar una
+# línea no espera) y las dos publicaciones de STOP (hasta `LOCK_TIMEOUT_S` cada una). Terminarlo
+# antes deja el cierre a medias: sin enable=0 ni `stop`, solo queda el watchdog del robot.
+SHUTDOWN_JOIN_S = 2 * rtde.DEFAULT_TIMEOUT + 3 * DASHBOARD_TIMEOUT_S + 2 * LOCK_TIMEOUT_S + JOIN_MARGIN_S
 POLL_S = 0.01
 
 
@@ -225,7 +232,7 @@ class UrFollowerCore:
         if self._worker is None or self._shared is None:
             return
         self._shared.request_stop()
-        self._worker.join(timeout=self._config.follower.watchdog.stop_s + JOIN_MARGIN_S)
+        self._worker.join(timeout=SHUTDOWN_JOIN_S)
         if self._worker.is_alive():
             log.error(
                 "follower: el proceso de streaming no terminó a tiempo; se fuerza (el watchdog del robot lo para)"

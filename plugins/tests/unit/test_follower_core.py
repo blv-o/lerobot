@@ -13,6 +13,7 @@ from collections.abc import Callable, Iterator
 from typing import Any
 
 import pytest
+import rtde.rtde as rtde
 import ur_core.follower as follower_module
 import ur_core.streaming as streaming_module
 from fakes import (
@@ -25,13 +26,14 @@ from fakes import (
 )
 from ur_core.clock import now_ns
 from ur_core.config import UR_TYPES, FollowerConfig, ServoConfig, TeleopConfig, UrLeaderConfig, WatchdogConfig
+from ur_core.dashboard import DASHBOARD_TIMEOUT_S
 from ur_core.follower import (
     FOLLOWERS,
     FollowerStartError,
     FollowerStoppedError,
     UrFollowerCore,
 )
-from ur_core.streaming import FollowerState, SharedState, StreamingLoop
+from ur_core.streaming import LOCK_TIMEOUT_S, FollowerState, SharedState, StreamingLoop
 
 CONFIG = TeleopConfig(
     leader=UrLeaderConfig(type="ur3e", ip="127.0.0.3", rtde_hz=500, timeout_s=0.1),
@@ -49,12 +51,45 @@ CONFIG = TeleopConfig(
 NEAR = [START_Q_RAD[0] + 0.005, *START_Q_RAD[1:]]
 FAR = [START_Q_RAD[0] + math.radians(10), *START_Q_RAD[1:]]
 WAIT_S = 10.0
+# Peor cierre del hijo: `receive` y `send` del cliente RTDE, conexión + bienvenida + respuesta del
+# Dashboard y las dos publicaciones de STOP.
+WORST_SHUTDOWN_S = 2 * rtde.DEFAULT_TIMEOUT + 3 * DASHBOARD_TIMEOUT_S + 2 * LOCK_TIMEOUT_S
 
 
 class ThreadWorker(threading.Thread):
     """Un hilo con la interfaz de `multiprocessing.Process` que usa `UrFollowerCore`."""
 
     terminated = False
+
+    def terminate(self) -> None:
+        self.terminated = True
+
+
+class ScriptedWorker:
+    """Proceso de streaming de mentira: publica `first` al lanzarse y el test decide el resto.
+
+    `on_is_alive` corre en cada `is_alive()`, antes de contestar; los `join` se registran.
+    """
+
+    def __init__(self, first: tuple[FollowerState, str] = (FollowerState.WAIT, "")) -> None:
+        self.first = first
+        self.shared: SharedState | None = None
+        self.alive = True
+        self.on_is_alive: Callable[[], None] = lambda: None
+        self.join_timeouts_s: list[float | None] = []
+        self.terminated = False
+
+    def launch(self, _follower: FollowerConfig, _tol_rad: float, shared: SharedState) -> "ScriptedWorker":
+        self.shared = shared
+        shared.publish_state(*self.first)
+        return self
+
+    def is_alive(self) -> bool:
+        self.on_is_alive()
+        return self.alive
+
+    def join(self, timeout: float | None = None) -> None:
+        self.join_timeouts_s.append(timeout)
 
     def terminate(self) -> None:
         self.terminated = True
@@ -286,6 +321,16 @@ def test_disconnect_stops_the_loop_through_the_shutdown(rig: Rig) -> None:
     assert status.state == FollowerState.STOP and "parada pedida" in status.stop_reason
     assert rig.rtde.written_enable()[-1] == 0
     assert rig.dashboard.commands == ["stop"]
+
+
+def test_disconnect_waits_for_the_worst_case_shutdown_before_terminating() -> None:
+    """Terminar el proceso a mitad de su cierre lo deja sin enable=0 ni `stop` por el Dashboard:
+    solo quedaría el watchdog del robot."""
+    worker = ScriptedWorker()
+    core = UrFollowerCore(CONFIG, launch=worker.launch)
+    core.connect()
+    core.disconnect()
+    assert worker.join_timeouts_s[0] >= WORST_SHUTDOWN_S
 
 
 def test_disconnect_twice_or_without_connect_does_nothing(rig: Rig) -> None:
