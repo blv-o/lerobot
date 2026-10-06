@@ -9,6 +9,7 @@ follower que usan los tests de replay (sin esa variable no se escribe nada).
 
 import json
 import math
+import multiprocessing.process
 import os
 import subprocess
 import sys
@@ -20,10 +21,12 @@ from typing import Any
 
 import pytest
 import rtde.rtde as rtde
-from ur_core import FollowerState, UrFollowerCore, load_config
+from ur_core import FollowerState, FollowerStoppedError, UrFollowerCore, load_config
 from ur_core.clock import now_ns
+from ur_core.config import FollowerConfig
 from ur_core.dashboard import DashboardClient
-from ur_core.streaming import OUTPUT_NAMES, OUTPUT_TYPES, RTDE_PORT, RUNTIME_PLAYING
+from ur_core.follower import Worker, spawn_worker
+from ur_core.streaming import OUTPUT_NAMES, OUTPUT_TYPES, RTDE_PORT, RUNTIME_PLAYING, SharedState
 
 PLUGINS = Path(__file__).parents[2]
 CONFIG_PATH = PLUGINS / "configs" / "ur_config.yaml"
@@ -260,3 +263,48 @@ def test_killed_parent_process_stops_the_robot_within_stop_time() -> None:
     stopped_after_s = (now_ns() - killed_ns) / 1e9
     print(f"parado {stopped_after_s * 1e3:.0f} ms después de matar al padre")
     assert stopped_after_s <= CONFIG.follower.watchdog.stop_s
+
+
+# El sondeo de `program_running()` abre una conexión RTDE nueva en cada llamada.
+WATCHDOG_POLL_MARGIN_S = 0.3
+
+
+def test_killed_streaming_process_is_stopped_by_robot_watchdog() -> None:
+    """Muerte brusca del proceso de streaming (el hijo): lo para el watchdog del robot.
+
+    Distinto del test del padre matado: ahí el hijo sigue vivo, lo detecta y para ordenadamente
+    (enable=0 y `stop` por el Dashboard). Aquí no queda nadie que lo haga, así que solo pueden
+    parar el programa el watchdog RTDE del URScript (`rtde_set_watchdog` sobre
+    input_int_register_0, frecuencia mínima 1 / watchdog.stop_s, acción "stop") o el cierre del
+    socket RTDE del hijo. Y el padre tiene que enterarse en la siguiente llamada.
+    """
+    processes: list[multiprocessing.process.BaseProcess] = []
+
+    def launch(follower: FollowerConfig, start_tolerance_rad: float, shared: SharedState) -> Worker:
+        worker = spawn_worker(follower, start_tolerance_rad, shared)
+        assert isinstance(worker, multiprocessing.process.BaseProcess)
+        processes.append(worker)
+        return worker
+
+    core = UrFollowerCore(CONFIG, launch=launch)
+    try:
+        core.connect()
+        q0 = core.get_joints()
+        core.send_joints(q0)
+        wait_until(lambda: core.status().state == FollowerState.RUN, 2.0, "RUN")
+        wait_until(program_running, 2.0, "programa en marcha")
+        core.send_joints(q0)  # consigna fresca: que no pare por su cuenta antes de matarlo
+        processes[0].kill()
+        killed_ns = now_ns()
+        processes[0].join(timeout=5)
+        wait_until(lambda: not program_running(), 5.0, "programa parado")
+        stopped_after_s = (now_ns() - killed_ns) / 1e9
+        print(f"parado {stopped_after_s * 1e3:.0f} ms después de matar el proceso de streaming")
+        with pytest.raises(FollowerStoppedError):
+            core.send_joints(q0)
+        with pytest.raises(FollowerStoppedError):
+            core.get_joints()
+        assert stopped_after_s <= CONFIG.follower.watchdog.stop_s + WATCHDOG_POLL_MARGIN_S
+        core.disconnect()  # con el proceso ya muerto no debe fallar
+    finally:
+        core.disconnect()
