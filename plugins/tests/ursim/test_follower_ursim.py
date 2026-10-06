@@ -7,6 +7,7 @@ Con `UR_RECORD_TRACES=1` además se graban en plugins/tests/traces/ las trazas R
 follower que usan los tests de replay (sin esa variable no se escribe nada).
 """
 
+import dataclasses
 import json
 import math
 import multiprocessing.process
@@ -267,17 +268,25 @@ def test_killed_parent_process_stops_the_robot_within_stop_time() -> None:
 
 # El sondeo de `program_running()` abre una conexión RTDE nueva en cada llamada.
 WATCHDOG_POLL_MARGIN_S = 0.3
+# Watchdog largo para este test: a mitad de él el programa tiene que seguir en marcha, así se
+# distingue del cierre del socket RTDE del hijo u otra vía que lo parase al instante.
+LONG_WATCHDOG_STOP_S = 2.0
 
 
 def test_killed_streaming_process_is_stopped_by_robot_watchdog() -> None:
     """Muerte brusca del proceso de streaming (el hijo): lo para el watchdog del robot.
 
     Distinto del test del padre matado: ahí el hijo sigue vivo, lo detecta y para ordenadamente
-    (enable=0 y `stop` por el Dashboard). Aquí no queda nadie que lo haga, así que solo pueden
-    parar el programa el watchdog RTDE del URScript (`rtde_set_watchdog` sobre
-    input_int_register_0, frecuencia mínima 1 / watchdog.stop_s, acción "stop") o el cierre del
-    socket RTDE del hijo. Y el padre tiene que enterarse en la siguiente llamada.
+    (enable=0 y `stop` por el Dashboard). Aquí no queda nadie que lo haga: solo el watchdog RTDE
+    del URScript (`rtde_set_watchdog` sobre input_int_register_0, frecuencia mínima
+    1 / watchdog.stop_s, acción "stop"). Con un `stop_s` largo se comprueba que es él quien para:
+    sigue en marcha a mitad de `stop_s` y está parado poco después de `stop_s`. Y el padre tiene
+    que enterarse en la siguiente llamada.
     """
+    watchdog = dataclasses.replace(CONFIG.follower.watchdog, stop_s=LONG_WATCHDOG_STOP_S)
+    assert watchdog.hold_s < watchdog.stop_s
+    # El URScript toma la frecuencia del watchdog de esta config: tiene que ser la del follower.
+    config = dataclasses.replace(CONFIG, follower=dataclasses.replace(CONFIG.follower, watchdog=watchdog))
     processes: list[multiprocessing.process.BaseProcess] = []
 
     def launch(follower: FollowerConfig, start_tolerance_rad: float, shared: SharedState) -> Worker:
@@ -286,7 +295,7 @@ def test_killed_streaming_process_is_stopped_by_robot_watchdog() -> None:
         processes.append(worker)
         return worker
 
-    core = UrFollowerCore(CONFIG, launch=launch)
+    core = UrFollowerCore(config, launch=launch)
     try:
         core.connect()
         q0 = core.get_joints()
@@ -304,14 +313,24 @@ def test_killed_streaming_process_is_stopped_by_robot_watchdog() -> None:
         processes[0].kill()
         killed_ns = now_ns()
         processes[0].join(timeout=5)
-        wait_until(lambda: not program_running(), 5.0, "programa parado")
+        assert processes[0].exitcode not in (0, None)
+
+        time.sleep(max(0.0, watchdog.stop_s / 2 - (now_ns() - killed_ns) / 1e9))
+        running_at_half = program_running()
+        probed_after_s = (now_ns() - killed_ns) / 1e9
+        assert probed_after_s < watchdog.stop_s, (
+            f"el sondeo a mitad del watchdog tardó {probed_after_s:.2f} s"
+        )
+        assert running_at_half, "el programa paró antes que el watchdog: lo paró otra vía"
+
+        wait_until(lambda: not program_running(), watchdog.stop_s + 5.0, "programa parado")
         stopped_after_s = (now_ns() - killed_ns) / 1e9
         print(f"parado {stopped_after_s * 1e3:.0f} ms después de matar el proceso de streaming")
-        with pytest.raises(FollowerStoppedError):
+        with pytest.raises(FollowerStoppedError, match="terminó sin publicar el motivo"):
             core.send_joints(q0)
-        with pytest.raises(FollowerStoppedError):
+        with pytest.raises(FollowerStoppedError, match="terminó sin publicar el motivo"):
             core.get_joints()
-        assert stopped_after_s <= CONFIG.follower.watchdog.stop_s + WATCHDOG_POLL_MARGIN_S
+        assert stopped_after_s <= watchdog.stop_s + WATCHDOG_POLL_MARGIN_S
         core.disconnect()  # con el proceso ya muerto no debe fallar
     finally:
         core.disconnect()
