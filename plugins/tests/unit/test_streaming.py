@@ -154,6 +154,20 @@ def test_arm_reaches_wait_when_heartbeat_changes() -> None:
     assert rig.states()[:1] == [FollowerState.WAIT]
 
 
+def test_measured_pose_is_written_before_wait_even_if_the_lock_was_busy_while_arming() -> None:
+    """`connect()` vuelve en cuanto ve WAIT: con la pose aún a ceros, un `send_joints(get_joints())`
+    justo después sería una "primera consigna lejos"."""
+
+    def parent_reading_while_arming(rig: Rig) -> None:
+        lock = rig.shared._lock
+        assert lock.acquire(block=False)
+        threading.Timer(0.2, lock.release).start()
+
+    rig = Rig(packets(ARM_PACKETS), actions={0: parent_reading_while_arming}).serve()
+    assert FollowerState.WAIT in rig.states()
+    assert rig.shared.read_measured() == pytest.approx(START_Q_RAD)
+
+
 def test_arm_fails_if_heartbeat_never_changes() -> None:
     frozen = [packet(START_Q_RAD, heartbeat=7) for _ in range(int(ARM_TIMEOUT_S * HZ) + 10)]
     rig = Rig(frozen).serve()

@@ -204,20 +204,34 @@ class SharedState:
         finally:
             self._lock.release()
 
+    def write_measured(self, q_rad: Sequence[float]) -> None:
+        """Versión bloqueante de `try_write_measured`, para la pose con la que se publica WAIT."""
+        if not self._child_acquire("la posición medida"):
+            return
+        try:
+            self._measured[:] = list(q_rad)
+        finally:
+            self._lock.release()
+
     def read_measured(self) -> list[float]:
         with self._locked():
             return list(self._measured)
 
+    def _child_acquire(self, what: str) -> bool:
+        """Espera del hijo al `Lock`, con límite: si no lo consigue lo registra y sigue."""
+        if self._lock.acquire(timeout=LOCK_TIMEOUT_S):
+            return True
+        log.error(
+            "follower: no se pudo publicar %s: memoria compartida bloqueada más de %s s "
+            "(¿el proceso padre murió con ella cogida?)",
+            what,
+            LOCK_TIMEOUT_S,
+        )
+        return False
+
     def publish_state(self, state: FollowerState, reason: str = "") -> None:
         data = reason.encode("utf-8")[: REASON_BYTES - 1]
-        if not self._lock.acquire(timeout=LOCK_TIMEOUT_S):
-            log.error(
-                "follower: no se pudo publicar el estado %s (%s): memoria compartida bloqueada "
-                "más de %s s (¿el proceso padre murió con ella cogida?)",
-                state.name,
-                reason,
-                LOCK_TIMEOUT_S,
-            )
+        if not self._child_acquire(f"el estado {state.name} ({reason})"):
             return
         try:
             self._state.value = state
@@ -370,6 +384,9 @@ class StreamingLoop:
             self._write(self._armed_q, enable=0)  # alimenta el watchdog
         self._hb = pkt.output_int_register_0
         self._hb_change_ns = self._clock()
+        # Las escrituras `try_*` del armado pueden haber coincidido todas con el padre leyendo el
+        # estado: `connect()` vuelve al ver WAIT y `get_joints()` ya debe dar la pose real.
+        self._shared.write_measured(pkt.actual_q)
         self._transition(FollowerState.WAIT)
 
     def _upload_script(self) -> None:
