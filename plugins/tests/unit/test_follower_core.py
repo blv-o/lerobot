@@ -197,6 +197,16 @@ def test_connect_gives_up_if_the_process_died_holding_the_shared_memory_lock(
     assert not core.is_connected
 
 
+def test_connect_lets_a_follower_that_failed_to_arm_finish_its_shutdown() -> None:
+    """STOP se publica en cuanto ocurre, antes del cierre: terminar el proceso entonces podría
+    dejar el script ya subido sin su `stop` por el Dashboard."""
+    worker = ScriptedWorker(first=(FollowerState.STOP, "robot_mode=IDLE (5)"))
+    core = UrFollowerCore(CONFIG, launch=worker.launch)
+    with pytest.raises(FollowerStartError, match="robot_mode"):
+        core.connect()
+    assert worker.join_timeouts_s[0] >= WORST_SHUTDOWN_S
+
+
 def test_connect_twice_does_not_launch_a_second_worker(rig: Rig) -> None:
     launches: list[int] = []
 
@@ -301,6 +311,19 @@ def test_get_joints_after_the_process_ended_raises_with_its_reason(rig: Rig) -> 
     core.send_joints(FAR)
     rig.worker.join(timeout=WAIT_S)
     with pytest.raises(FollowerStoppedError, match="primera consigna lejos"):
+        core.get_joints()
+    core.disconnect()
+
+
+def test_get_joints_raises_as_soon_as_stop_is_published() -> None:
+    """Tras STOP la pose ya no se actualiza aunque el proceso siga en su cierre: devolverla haría
+    que LeRobot siguiera grabando con el robot parado."""
+    worker = ScriptedWorker()
+    core = UrFollowerCore(CONFIG, launch=worker.launch)
+    core.connect()
+    assert worker.shared is not None
+    worker.shared.publish_state(FollowerState.STOP, "parada de seguridad")
+    with pytest.raises(FollowerStoppedError, match="parada de seguridad"):
         core.get_joints()
     core.disconnect()
 

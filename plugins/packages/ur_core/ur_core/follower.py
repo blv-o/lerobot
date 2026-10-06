@@ -178,18 +178,19 @@ class UrFollowerCore:
             try:
                 state, reason = shared.read_state()
             except FollowerStoppedError as exc:  # murió con el Lock cogido
-                self._abort()
+                self._abort(JOIN_MARGIN_S)
                 raise FollowerStartError(str(exc)) from exc
             if state == FollowerState.WAIT:
                 return
             if state == FollowerState.STOP:
-                self._abort()
+                # STOP se publica antes del cierre: si el script ya se subió, falta su `stop`.
+                self._abort(SHUTDOWN_JOIN_S)
                 raise FollowerStartError(reason)
             if not alive:
-                self._abort()
+                self._abort(JOIN_MARGIN_S)
                 raise FollowerStartError("el proceso del follower terminó sin armar ni publicar el motivo")
             if now_ns() > deadline_ns:
-                self._abort()
+                self._abort(JOIN_MARGIN_S)  # atascado: su propio ARM_TIMEOUT_S ya pasó
                 raise FollowerStartError(
                     f"el follower no quedó armado en {ARM_TIMEOUT_S + CONNECT_MARGIN_S} s; proceso terminado"
                 )
@@ -211,13 +212,11 @@ class UrFollowerCore:
     def get_joints(self) -> list[float]:
         """Última `actual_q` medida, en rad.
 
-        Con el proceso de streaming muerto lanza en vez de devolver la última pose: una pose
-        congelada haría que LeRobot siguiera grabando con el robot parado.
+        Tras STOP o con el proceso de streaming muerto lanza en vez de devolver la última pose: ya
+        no se actualiza, y una pose congelada haría que LeRobot siguiera grabando con el robot parado.
         """
         shared, worker = self._connected()
-        alive = worker.is_alive()
-        if not alive:
-            self._raise_if_stopped(shared, alive)
+        self._raise_if_stopped(shared, alive=worker.is_alive())
         return shared.read_measured()
 
     def status(self) -> FollowerStatus:
@@ -259,9 +258,9 @@ class UrFollowerCore:
                 "el proceso del follower terminó sin publicar el motivo; el watchdog del robot lo para"
             )
 
-    def _abort(self) -> None:
+    def _abort(self, join_s: float) -> None:
         assert self._worker is not None
-        self._worker.join(timeout=JOIN_MARGIN_S)
+        self._worker.join(timeout=join_s)
         if self._worker.is_alive():
             self._worker.terminate()
             self._worker.join(timeout=JOIN_MARGIN_S)

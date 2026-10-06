@@ -66,13 +66,14 @@ class Rig:
         fail: tuple[str, ...] = (),
         dashboard_fail: tuple[str, ...] = (),
         shared: SharedState | None = None,
+        dashboard: FakeDashboard | None = None,
     ) -> None:
         self.clock = FakeClock()
         self.shared = shared or SharedState()
         self.parent_is_alive = True
         bound = {k: (lambda f=f: f(self)) for k, f in (actions or {}).items()}
         self.rtde = FakeRTDE(pkts, clock=self.clock, hz=HZ, actions=bound, fail=fail)
-        self.dashboard = FakeDashboard(fail=dashboard_fail)
+        self.dashboard = dashboard or FakeDashboard(fail=dashboard_fail)
         self.secondary = FakeSecondary()
         self.sent_before_script: int | None = None
         self.loop = StreamingLoop(
@@ -431,6 +432,43 @@ def test_dashboard_failure_on_shutdown_is_logged_and_state_still_published(
 
 def _written_q(fields: dict[str, Any]) -> list[float]:
     return [fields[f"input_double_register_{i}"] for i in range(6)]
+
+
+class BlockingDashboard(FakeDashboard):
+    """Dashboard lento: `send` no contesta hasta que el test suelta `release`."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.sending = threading.Event()
+        self.release = threading.Event()
+
+    def send(self, command: str) -> str:
+        self.sending.set()
+        assert self.release.wait(timeout=10)
+        return super().send(command)
+
+
+@pytest.mark.timeout(10)
+def test_stop_is_published_when_it_happens_not_after_a_slow_shutdown() -> None:
+    """El cierre puede tardar segundos (RTDE, Dashboard). Si STOP se publicara al final, mientras
+    tanto el padre vería RUN con el robot ya parado: aceptaría consignas y daría una pose congelada."""
+    near = offset(START_Q_RAD, 0, 0.005)
+    dashboard = BlockingDashboard()
+    rig = Rig(
+        packets(50),
+        actions={5: send_at(near), 10: lambda rig: rig.shared.request_stop()},
+        dashboard=dashboard,
+    )
+    serving = threading.Thread(target=rig.loop.serve, daemon=True)
+    serving.start()
+    try:
+        assert dashboard.sending.wait(timeout=5), "el cierre no llegó al `stop` del Dashboard"
+        assert rig.shared.read_state() == (FollowerState.STOP, "parada pedida (disconnect)")
+    finally:
+        dashboard.release.set()
+        serving.join(timeout=5)
+    assert not serving.is_alive()
+    assert rig.dashboard.commands == ["stop"]
 
 
 def test_every_write_carries_target_and_enable_together() -> None:

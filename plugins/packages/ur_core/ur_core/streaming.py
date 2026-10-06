@@ -5,8 +5,8 @@ habla con el padre solo a través de `SharedState`. El ritmo lo marca el robot: 
 paquete RTDE recibido, así que no hace falta temporizador propio.
 
 Estados: ARMING (subiendo el URScript) → WAIT (quieto, sin consignas) → RUN ⇄ HOLD → STOP.
-Toda salida, normal o por excepción, pasa por el mismo cierre: enable=0, `stop` por el
-Dashboard, motivo publicado. Es una segunda capa: la seguridad real es la de PolyScope.
+Toda salida, normal o por excepción, publica STOP con su motivo en cuanto ocurre y pasa por el
+mismo cierre: enable=0 y `stop` por el Dashboard. Es una segunda capa: la seguridad real es la de PolyScope.
 """
 
 import logging
@@ -441,7 +441,7 @@ class StreamingLoop:
         except Exception:
             log.exception("follower: error al cerrar el Dashboard")
         self._publish_period_stats()
-        self._shared.publish_state(FollowerState.STOP, self._reason)
+        self._shared.publish_state(FollowerState.STOP, self._reason)  # por si el cierre lo amplió
         self._rtde.disconnect()
 
     # --- un ciclo por paquete -----------------------------------------------------------
@@ -555,8 +555,9 @@ class StreamingLoop:
         log.info("follower %s -> %s t_ns=%d %s", self._state.name, state.name, t_ns, reason)
         self.events.append((t_ns, state, reason))
         self._state, self._reason = state, reason
-        if state != FollowerState.STOP:
-            self._shared.publish_state(state, reason)  # STOP se publica al final del cierre
+        # También STOP, sin esperar al cierre (puede tardar segundos): hasta verlo, el padre
+        # seguiría aceptando consignas y dando una pose que ya no se actualiza.
+        self._shared.publish_state(state, reason)
 
     def _record_period(self, now_ns: int) -> None:
         if self._last_rx_ns is not None:
