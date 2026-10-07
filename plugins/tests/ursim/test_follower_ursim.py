@@ -223,8 +223,12 @@ def test_program_stopped_from_pendant_stops_the_follower(core: UrFollowerCore) -
     wait_until(lambda: core.status().state == FollowerState.RUN, 2.0, "RUN")
     stop_ns = now_ns()
     dashboard("stop")
-    while core.status().state != FollowerState.STOP:
-        core.send_joints(q0)  # LeRobot sigue mandando consignas
+    # LeRobot sigue mandando consignas y se entera de la parada porque send_joints lanza.
+    while True:
+        try:
+            core.send_joints(q0)
+        except FollowerStoppedError:
+            break
         assert now_ns() - stop_ns < CONFIG.follower.watchdog.stop_s * 1e9 + 0.5e9
         time.sleep(1 / SEND_HZ)
     recorder.save("follower_stopped_from_pendant")
