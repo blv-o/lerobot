@@ -11,6 +11,7 @@ import multiprocessing
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from multiprocessing.util import Finalize
 from typing import Protocol
 
 import rtde.rtde as rtde
@@ -97,6 +98,7 @@ class UrFollowerCore:
         self._dashboard_factory = dashboard_factory
         self._shared: SharedState | None = None
         self._worker: Worker | None = None
+        self._exit_disconnect: Finalize | None = None
 
     @property
     def is_connected(self) -> bool:
@@ -171,6 +173,12 @@ class UrFollowerCore:
         shared = SharedState()
         worker = self._launch(self._config.follower, self._config.start_tolerance_rad, shared)
         self._shared, self._worker = shared, worker
+        # Al salir del intérprete sin disconnect() (un `finally` que lanzó antes de llegar a él),
+        # multiprocessing termina el proceso daemon sin su cierre: sin enable=0 ni `stop`, el
+        # robot lo para su watchdog y queda en parada de protección. Un Finalize con prioridad
+        # >= 0 corre dentro de su hook de salida justo antes de terminar los daemon, sea cual
+        # sea el orden de los hooks de atexit (que `multiprocessing.get_logger()` reordena).
+        self._exit_disconnect = Finalize(self, self.disconnect, exitpriority=0)
         deadline_ns = now_ns() + round((ARM_TIMEOUT_S + CONNECT_MARGIN_S) * 1e9)
         while True:
             alive = worker.is_alive()  # antes de leer el estado: si murió, el STOP ya está publicado
@@ -238,6 +246,7 @@ class UrFollowerCore:
             self._worker.terminate()
             self._worker.join(timeout=JOIN_MARGIN_S)
         self._worker = None
+        self._cancel_exit_disconnect()
 
     def _connected(self) -> tuple[SharedState, Worker]:
         if self._worker is None or self._shared is None:
@@ -264,6 +273,13 @@ class UrFollowerCore:
             self._worker.terminate()
             self._worker.join(timeout=JOIN_MARGIN_S)
         self._worker = None
+        self._cancel_exit_disconnect()
+
+    def _cancel_exit_disconnect(self) -> None:
+        # El registro de multiprocessing guarda `self.disconnect`: sin cancelarlo, retiene el objeto.
+        if self._exit_disconnect is not None:
+            self._exit_disconnect.cancel()
+            self._exit_disconnect = None
 
 
 FOLLOWERS: dict[str, type[UrFollowerCore]] = dict.fromkeys(UR_TYPES, UrFollowerCore)

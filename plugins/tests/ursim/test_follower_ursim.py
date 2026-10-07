@@ -307,6 +307,70 @@ def test_killed_parent_process_stops_the_robot_within_stop_time() -> None:
     assert stopped_after_s <= CONFIG.follower.watchdog.stop_s
 
 
+# Watchdog largo: una parada ordenada al salir se ve muy por debajo de él; la del watchdog, no.
+EXIT_WATCHDOG_STOP_S = 2.0
+EXIT_STREAMING_S = 1.0
+
+EXITING_PARENT_SCRIPT = """
+import dataclasses, sys, time
+from ur_core import UrFollowerCore, load_config
+from ur_core.clock import now_ns
+config = load_config(sys.argv[1])
+watchdog = dataclasses.replace(config.follower.watchdog, stop_s=float(sys.argv[2]))
+config = dataclasses.replace(config, follower=dataclasses.replace(config.follower, watchdog=watchdog))
+core = UrFollowerCore(config)
+core.connect()
+q0 = core.get_joints()
+print("ready", flush=True)
+end_ns = now_ns() + round(float(sys.argv[3]) * 1e9)
+while now_ns() < end_ns:
+    core.send_joints(q0)
+    time.sleep(1 / 30)
+print("exiting", flush=True)
+sys.exit(0)  # salida normal del intérprete sin disconnect()
+"""
+
+
+def test_parent_exiting_without_disconnect_stops_the_robot_in_order() -> None:
+    """Salida normal del padre sin `disconnect()` (p. ej. un `finally` que lanzó antes de llegar a
+    él): el cierre al salir del intérprete tiene que pasar por la parada ordenada del hijo, no
+    terminarlo y dejar que lo pare el watchdog del robot (que lo deja en parada de protección)."""
+    assert dashboard("safetystatus") == "Safetystatus: NORMAL"
+    parent = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            EXITING_PARENT_SCRIPT,
+            str(CONFIG_PATH),
+            str(EXIT_WATCHDOG_STOP_S),
+            str(EXIT_STREAMING_S),
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+        env={**os.environ},
+    )
+    try:
+        assert parent.stdout is not None and parent.stdout.readline().strip() == "ready"
+        wait_until(program_running, 2.0, "programa en marcha")
+        assert parent.stdout.readline().strip() == "exiting"
+        exiting_ns = now_ns()
+        wait_until(lambda: not program_running(), EXIT_WATCHDOG_STOP_S + 5.0, "programa parado")
+        stopped_after_s = (now_ns() - exiting_ns) / 1e9
+        protective_stop = protective_stop_appears()
+        print(
+            f"parado {stopped_after_s * 1e3:.0f} ms después de que el padre empezara a salir; "
+            f"parada de protección: {protective_stop}"
+        )
+        assert parent.wait(timeout=30) == 0
+        assert not protective_stop, "el follower quedó en parada de protección: lo paró el watchdog"
+        assert stopped_after_s < EXIT_WATCHDOG_STOP_S / 4, "parada demasiado lenta para ser la ordenada"
+    finally:
+        if parent.poll() is None:
+            parent.kill()
+            parent.wait(timeout=10)
+        release_protective_stop()
+
+
 # El sondeo de `program_running()` abre una conexión RTDE nueva en cada llamada.
 WATCHDOG_POLL_MARGIN_S = 0.3
 # Watchdog largo para este test: a mitad de él el programa tiene que seguir en marcha, así se

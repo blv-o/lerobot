@@ -402,6 +402,54 @@ def test_disconnect_twice_or_without_connect_does_nothing(rig: Rig) -> None:
     core.disconnect()
 
 
+class FinalizeRecorder:
+    """Sustituye a `multiprocessing.util.Finalize`: registra qué se apunta para la salida."""
+
+    def __init__(self) -> None:
+        self.registered: list[tuple[Callable[[], None], int | None]] = []
+        self.cancelled = 0
+
+    def __call__(self, _obj: object, callback: Callable[[], None], exitpriority: int | None = None) -> Any:
+        self.registered.append((callback, exitpriority))
+        recorder = self
+
+        class _Handle:
+            def cancel(self) -> None:
+                recorder.cancelled += 1
+
+        return _Handle()
+
+
+@pytest.fixture
+def finalize(monkeypatch: pytest.MonkeyPatch) -> FinalizeRecorder:
+    recorder = FinalizeRecorder()
+    monkeypatch.setattr(follower_module, "Finalize", recorder)
+    return recorder
+
+
+def test_connect_schedules_disconnect_at_exit_before_daemons_are_terminated(finalize: FinalizeRecorder) -> None:
+    """Al salir del intérprete, multiprocessing termina los procesos daemon sin pasar por su
+    cierre (enable=0, `stop`): solo los finalizadores con prioridad >= 0 corren antes."""
+    worker = ScriptedWorker()
+    core = UrFollowerCore(CONFIG, launch=worker.launch)
+    core.connect()
+    assert finalize.registered == [(core.disconnect, 0)]
+    assert finalize.cancelled == 0
+    core.disconnect()
+    assert finalize.cancelled == 1
+    core.disconnect()
+    assert finalize.cancelled == 1
+
+
+def test_failed_connect_drops_the_exit_disconnect(finalize: FinalizeRecorder) -> None:
+    worker = ScriptedWorker(first=(FollowerState.STOP, "robot_mode=IDLE (5)"))
+    core = UrFollowerCore(CONFIG, launch=worker.launch)
+    with pytest.raises(FollowerStartError):
+        core.connect()
+    assert len(finalize.registered) == 1
+    assert finalize.cancelled == 1
+
+
 def test_status_reports_period_statistics(rig: Rig) -> None:
     core = UrFollowerCore(CONFIG, launch=rig.launch)
     core.connect()
