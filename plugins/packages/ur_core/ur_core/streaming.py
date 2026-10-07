@@ -467,9 +467,16 @@ class StreamingLoop:
             self._dashboard.close()
         except Exception:
             log.exception("follower: error al cerrar el Dashboard")
-        self._publish_period_stats()
+        # Dentro del `finally` de `serve`: una excepción aquí sustituiría a la original.
+        try:
+            self._publish_period_stats()
+        except Exception:
+            log.exception("follower: no se pudieron publicar las estadísticas del periodo")
         self._shared.publish_state(FollowerState.STOP, self._reason)  # por si el cierre lo amplió
-        self._rtde.disconnect()
+        try:
+            self._rtde.disconnect()
+        except Exception:
+            log.exception("follower: error al cerrar la conexión RTDE")
 
     def _backup_stop(self) -> None:
         # Conexión nueva: la del armado puede llevar muerta desde entonces, y `connect()` no la

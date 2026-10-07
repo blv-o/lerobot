@@ -82,7 +82,8 @@ class FakeRTDE:
       `ValueError` en `send_input_setup` (el cliente real al ver `IN_USE` en la respuesta);
       `start_lost` → `RTDEException` en `send_start` (conexión perdida en plena configuración);
       `setup_oserror` → `ConnectionResetError` en `send_output_setup` y `send_oserror` → lo mismo
-      en `send` (lo lanza `sock.sendall`).
+      en `send` (lo lanza `sock.sendall`); `disconnect` → `OSError` en `disconnect` (lo lanza
+      `sock.close` del cliente real).
     - `send()` sin sincronización activa (antes de `send_start`, tras `disconnect` o tras perder la
       conexión) no envía y devuelve None; con un campo de la receta sin valor lanza ValueError.
     """
@@ -117,6 +118,8 @@ class FakeRTDE:
         self.connected = True
 
     def disconnect(self) -> None:
+        if "disconnect" in self._fail:
+            raise OSError("FakeRTDE: fallo al cerrar el socket")
         self.connected = False
         self.started = False
 

@@ -455,6 +455,24 @@ def test_dashboard_failure_on_shutdown_is_logged_and_state_still_published(
     assert "Dashboard" in caplog.text
 
 
+def test_rtde_disconnect_failure_on_shutdown_is_logged_and_keeps_the_stop_reason(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Dentro del `finally` de `serve`, una excepción del cierre sustituiría a la original y
+    saldría del proceso de streaming sin registrar."""
+    near = offset(START_Q_RAD, 0, 0.005)
+    with caplog.at_level(logging.ERROR):
+        rig = Rig(
+            packets(50),
+            actions={5: send_at(near), 10: lambda rig: rig.shared.request_stop()},
+            fail=("disconnect",),
+        ).serve()
+    assert rig.state == FollowerState.STOP
+    assert "parada pedida" in rig.reason
+    assert rig.dashboard.commands == ["stop"]
+    assert "fallo al cerrar el socket" in caplog.text
+
+
 def test_backup_stop_goes_over_a_fresh_dashboard_connection() -> None:
     """La conexión abierta al armar puede llevar muerta desde entonces (el Dashboard o la red la
     cerraron) y `connect()` no la renovaría: el `stop` de respaldo va por una nueva."""
