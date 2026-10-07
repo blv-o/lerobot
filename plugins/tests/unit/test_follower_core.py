@@ -8,14 +8,19 @@ import dataclasses
 import inspect
 import math
 import multiprocessing
+import os
+import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable, Iterator
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 import rtde.rtde as rtde
+import ur_core
 import ur_core.follower as follower_module
 import ur_core.streaming as streaming_module
 from fakes import (
@@ -427,7 +432,7 @@ def finalize(monkeypatch: pytest.MonkeyPatch) -> FinalizeRecorder:
     return recorder
 
 
-def test_connect_schedules_disconnect_at_exit_before_daemons_are_terminated(finalize: FinalizeRecorder) -> None:
+def test_connect_registers_exit_disconnect_with_priority_0(finalize: FinalizeRecorder) -> None:
     """Al salir del intérprete, multiprocessing termina los procesos daemon sin pasar por su
     cierre (enable=0, `stop`): solo los finalizadores con prioridad >= 0 corren antes."""
     worker = ScriptedWorker()
@@ -498,6 +503,55 @@ def test_real_spawned_process_arms_runs_and_stops_on_disconnect() -> None:
     core.disconnect()
     assert processes[0].exitcode == 0
     assert "parada pedida" in core.status().stop_reason
+
+
+def _streaming_main_marking_shutdown(
+    follower: FollowerConfig, tol_rad: float, shared: SharedState, mark_path: str
+) -> None:
+    """Deja una marca solo si el bucle termina por su cierre; `terminate()` no llega a ella."""
+    _fake_streaming_main(follower, tol_rad, shared)
+    Path(mark_path).write_text("cierre completo", encoding="utf-8")
+
+
+def _spawn_marking_shutdown(
+    mark_path: str, follower: FollowerConfig, tol_rad: float, shared: SharedState
+) -> multiprocessing.Process:
+    process = multiprocessing.get_context("spawn").Process(
+        target=_streaming_main_marking_shutdown, args=(follower, tol_rad, shared, mark_path), daemon=True
+    )
+    process.start()
+    return process
+
+
+EXITING_PARENT_SCRIPT = """
+import functools, sys
+from test_follower_core import CONFIG, _spawn_marking_shutdown
+from ur_core.follower import UrFollowerCore
+core = UrFollowerCore(CONFIG, launch=functools.partial(_spawn_marking_shutdown, sys.argv[1]))
+core.connect()
+sys.exit(0)  # salida normal del intérprete sin disconnect()
+"""
+
+
+@pytest.mark.timeout(60)
+def test_parent_exiting_without_disconnect_lets_the_streaming_process_finish_its_shutdown(
+    tmp_path: Path,
+) -> None:
+    """Un `finally` que lanza antes de llegar a `disconnect()`: el proceso de streaming tiene que
+    pasar por su cierre antes de que multiprocessing termine los daemon al salir."""
+    mark = tmp_path / "cierre.txt"
+    # El padre importa este módulo (y `fakes`) y el ur_core de este árbol, como pytest.
+    import_paths = [str(Path(ur_core.__file__).parents[1]), str(Path(__file__).parent)]
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join([*import_paths, os.environ.get("PYTHONPATH", "")])}
+    result = subprocess.run(
+        [sys.executable, "-c", EXITING_PARENT_SCRIPT, str(mark)],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=50,
+    )
+    assert result.returncode == 0, result.stderr
+    assert mark.exists(), f"el proceso de streaming no pasó por su cierre:\n{result.stderr}"
 
 
 # --- comprobaciones de arranque --------------------------------------------------------------
