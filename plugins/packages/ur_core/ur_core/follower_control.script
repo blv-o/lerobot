@@ -19,7 +19,8 @@ def follower_control():
 	textmsg("follower_control: iniciando")
 
 	# Si el PC deja de escribir el registro enable (proceso o PC muerto),
-	# el controlador para el programa por sí solo.
+	# el controlador para el programa por sí solo. Frecuencia = 2 / stop_s:
+	# el controlador para tras ~2 periodos sin dato (medido en URSim).
 	rtde_set_watchdog("input_int_register_0", __WATCHDOG_HZ__, "stop")
 
 	hb = 0

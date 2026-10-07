@@ -283,7 +283,7 @@ def test_killed_streaming_process_is_stopped_by_robot_watchdog() -> None:
     Distinto del test del padre matado: ahí el hijo sigue vivo, lo detecta y para ordenadamente
     (enable=0 y `stop` por el Dashboard). Aquí no queda nadie que lo haga: solo el watchdog RTDE
     del URScript (`rtde_set_watchdog` sobre input_int_register_0, frecuencia mínima
-    1 / watchdog.stop_s, acción "stop"). Con un `stop_s` largo se comprueba que es él quien para:
+    2 / watchdog.stop_s porque el controlador para tras ~2 periodos sin dato, acción "stop"). Con un `stop_s` largo se comprueba que es él quien para:
     sigue en marcha a mitad de `stop_s` y está parado poco después de `stop_s`. Y el padre tiene
     que enterarse en la siguiente llamada.
     """

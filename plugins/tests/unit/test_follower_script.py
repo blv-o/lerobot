@@ -26,8 +26,9 @@ def test_all_template_tokens_are_replaced(script: str) -> None:
     assert re.search(r"__\w+__", script) is None
 
 
-def test_watchdog_on_enable_register_at_one_over_stop_time(script: str) -> None:
-    assert 'rtde_set_watchdog("input_int_register_0", 2.0, "stop")' in script
+def test_watchdog_on_enable_register_at_two_over_stop_time(script: str) -> None:
+    """El controlador para tras ~2 periodos sin dato (medido en URSim): 2 / stop_s para en stop_s."""
+    assert 'rtde_set_watchdog("input_int_register_0", 4.0, "stop")' in script
 
 
 def test_servoj_uses_servo_period_lookahead_and_gain(script: str) -> None:
