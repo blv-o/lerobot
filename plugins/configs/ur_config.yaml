@@ -30,7 +30,7 @@ follower:
     hz: 125                      # frecuencia RTDE y t de servoj = 1/hz
     gain: 300                    # [100, 2000]
     lookahead_s: 0.1             # [0.03, 0.2]
-    max_joint_speed_deg_s: 60    # incremento máximo por articulación entre consignas consecutivas
+    max_joint_speed_deg_s: 60    # velocidad máxima por articulación: limita el paso de cada ciclo de servo a velocidad / hz
     target_period_ms: 33         # = 1000 / --fps de LeRobot (30 fps ↔ 33 ms)
   watchdog:
     hold_ms: 100                 # sin consigna nueva → mantiene la última posición (> target_period_ms)
