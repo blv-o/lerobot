@@ -213,6 +213,8 @@ class FakeDashboard:
 
     Como `DashboardClient`, `connect()` no hace nada si ya hay conexión; `connections` cuenta las
     que se abren de verdad. `stop` contesta "Stopped", como el Dashboard de UR, salvo otra respuesta.
+    `fail`: `connect` → `ConnectionRefusedError`, `send` → `OSError` y `close` → `OSError` (lo
+    lanza `sock.close` del cliente real).
     """
 
     def __init__(self, responses: dict[str, str] | None = None, fail: Iterable[str] = ()) -> None:
@@ -238,6 +240,8 @@ class FakeDashboard:
         return self._responses.get(command, "")
 
     def close(self) -> None:
+        if "close" in self._fail:
+            raise OSError("FakeDashboard: fallo al cerrar")
         self.connected = False
 
 

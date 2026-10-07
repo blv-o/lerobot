@@ -473,6 +473,44 @@ def test_rtde_disconnect_failure_on_shutdown_is_logged_and_keeps_the_stop_reason
     assert "fallo al cerrar el socket" in caplog.text
 
 
+def test_dashboard_close_failure_on_shutdown_is_logged_and_stop_still_published(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    near = offset(START_Q_RAD, 0, 0.005)
+    with caplog.at_level(logging.ERROR):
+        rig = Rig(
+            packets(50),
+            actions={5: send_at(near), 10: lambda rig: rig.shared.request_stop()},
+            dashboard_fail=("close",),
+        ).serve()
+    assert rig.state == FollowerState.STOP
+    assert "parada pedida" in rig.reason
+    assert "fallo al cerrar" in caplog.text
+    assert not rig.rtde.is_connected()
+
+
+class FailingStatsSharedState(SharedState):
+    def try_write_period_stats(self, p50_s: float, p99_s: float, max_s: float) -> bool:
+        raise RuntimeError("fallo al publicar las estadísticas")
+
+
+def test_period_stats_failure_on_shutdown_is_logged_and_stop_still_published(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Menos de un segundo de paquetes: las estadísticas solo se publican en el cierre.
+    near = offset(START_Q_RAD, 0, 0.005)
+    with caplog.at_level(logging.ERROR):
+        rig = Rig(
+            packets(50),
+            actions={5: send_at(near), 10: lambda rig: rig.shared.request_stop()},
+            shared=FailingStatsSharedState(),
+        ).serve()
+    assert rig.state == FollowerState.STOP
+    assert "parada pedida" in rig.reason
+    assert "fallo al publicar las estadísticas" in caplog.text
+    assert not rig.rtde.is_connected()
+
+
 def test_backup_stop_goes_over_a_fresh_dashboard_connection() -> None:
     """La conexión abierta al armar puede llevar muerta desde entonces (el Dashboard o la red la
     cerraron) y `connect()` no la renovaría: el `stop` de respaldo va por una nueva."""
