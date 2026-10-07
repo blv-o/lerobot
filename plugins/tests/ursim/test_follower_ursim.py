@@ -79,6 +79,31 @@ def wait_until(predicate: Any, timeout_s: float, what: str) -> None:
         time.sleep(0.01)
 
 
+# El controlador rechaza desbloquear una parada de protección antes de 5 s desde que ocurrió.
+PROTECTIVE_STOP_UNLOCK_DELAY_S = 5.0
+PROTECTIVE_STOP_RELEASE_TIMEOUT_S = 10.0
+
+
+def release_protective_stop() -> None:
+    """Devuelve el URSim a NORMAL si quedó en parada de protección.
+
+    Cuando salta el watchdog RTDE, el controlador da C207 "Fieldbus input disconnected" y entra
+    en parada de protección; sin desbloquearla, los tests siguientes no pueden arrancar el
+    follower. En un robot real la desbloquea el operario desde el teach pendant.
+    """
+    if dashboard("safetystatus") != "Safetystatus: PROTECTIVE_STOP":
+        return
+    # La parada ocurrió antes de verla: esperar desde ahora garantiza los 5 s.
+    time.sleep(PROTECTIVE_STOP_UNLOCK_DELAY_S)
+    reply = dashboard("unlock protective stop")
+    assert reply.startswith("Protective stop releasing"), f"desbloqueo rechazado: {reply!r}"
+    wait_until(
+        lambda: dashboard("safetystatus") == "Safetystatus: NORMAL",
+        PROTECTIVE_STOP_RELEASE_TIMEOUT_S,
+        "Safetystatus: NORMAL",
+    )
+
+
 class TraceRecorder:
     """Graba el stream RTDE del follower con una conexión de solo lectura propia."""
 
@@ -338,3 +363,4 @@ def test_killed_streaming_process_is_stopped_by_robot_watchdog() -> None:
         core.disconnect()  # con el proceso ya muerto no debe fallar
     finally:
         core.disconnect()
+        release_protective_stop()
