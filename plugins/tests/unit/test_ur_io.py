@@ -87,6 +87,42 @@ def test_dashboard_raises_if_server_closes(tcp_server) -> None:
     dashboard.close()
 
 
+class FakeSocket:
+    """Socket que entrega `incoming` (b"" = el servidor cerró) y registra si se cerró."""
+
+    def __init__(self, incoming: list[bytes]) -> None:
+        self._incoming = incoming
+        self.sent = b""
+        self.closed = False
+
+    def recv(self, _size: int) -> bytes:
+        return self._incoming.pop(0) if self._incoming else b""
+
+    def sendall(self, data: bytes) -> None:
+        self.sent += data
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_dashboard_failed_welcome_closes_the_socket_and_next_connect_reconnects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Si el socket quedara abierto y marcado como conectado, el siguiente `connect()` volvería
+    sin hacer nada y el `stop` de respaldo iría a una conexión muerta."""
+    dead = FakeSocket([b""])
+    alive = FakeSocket([b"Connected\n", b"Stopped\n"])
+    opened = [dead, alive]
+    monkeypatch.setattr(socket, "create_connection", lambda *_args, **_kwargs: opened.pop(0))
+    dashboard = DashboardClient("127.0.0.1")
+    with pytest.raises(ConnectionError):
+        dashboard.connect()
+    assert dead.closed
+    dashboard.connect()
+    assert dashboard.send("stop") == "Stopped"
+    assert alive.sent == b"stop\n"
+
+
 def test_send_script_delivers_whole_program_with_final_newline(tcp_server) -> None:
     received: list[bytes] = []
     done = threading.Event()

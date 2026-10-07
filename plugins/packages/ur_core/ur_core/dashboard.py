@@ -26,7 +26,12 @@ class DashboardClient:
             return
         self._sock = socket.create_connection((self.host, self.port), timeout=self.timeout_s)
         self._buf = b""
-        self._read_line()  # bienvenida
+        try:
+            self._read_line()  # bienvenida
+        except BaseException:
+            # Sin cerrarlo quedaría marcado como conectado y el siguiente `connect()` no haría nada.
+            self.close()
+            raise
 
     def send(self, command: str) -> str:
         if self._sock is None:
