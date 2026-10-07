@@ -216,7 +216,7 @@ def _validate(c: dict[str, Any]) -> None:
     _check_range("follower.servo.lookahead_s", servo["lookahead_s"], LOOKAHEAD_RANGE_S)
     _check_positive("follower.servo.max_joint_speed_deg_s", servo["max_joint_speed_deg_s"])
     _check_positive("follower.servo.target_period_ms", servo["target_period_ms"])
-    _check_watchdog(watchdog)
+    _check_watchdog(watchdog, servo)
     _check_start_pose(c["start_pose_deg"])
     _check_positive("start_tolerance_deg", c["start_tolerance_deg"])
 
@@ -267,13 +267,25 @@ def _check_range(field: str, value: Any, limits: tuple[float, float]) -> None:
         raise ConfigError(field, f"fuera de [{low}, {high}] (vale {value})")
 
 
-def _check_watchdog(watchdog: dict[str, Any]) -> None:
+def _check_watchdog(watchdog: dict[str, Any], servo: dict[str, Any]) -> None:
     _check_positive("follower.watchdog.hold_ms", watchdog["hold_ms"])
     _check_positive("follower.watchdog.stop_ms", watchdog["stop_ms"])
     if watchdog["hold_ms"] >= watchdog["stop_ms"]:
         raise ConfigError(
             "follower.watchdog.hold_ms",
             f"debe ser < stop_ms ({watchdog['hold_ms']} >= {watchdog['stop_ms']})",
+        )
+    # Si no, saltarían con el ritmo normal: hold entre dos consignas, stop entre dos ciclos RTDE.
+    if watchdog["hold_ms"] <= servo["target_period_ms"]:
+        raise ConfigError(
+            "follower.watchdog.hold_ms",
+            f"debe ser > target_period_ms ({watchdog['hold_ms']} <= {servo['target_period_ms']})",
+        )
+    servo_period_ms = 1000 / servo["hz"]
+    if watchdog["stop_ms"] <= servo_period_ms:
+        raise ConfigError(
+            "follower.watchdog.stop_ms",
+            f"debe ser > 1000 / servo.hz ({watchdog['stop_ms']} <= {servo_period_ms:g})",
         )
 
 

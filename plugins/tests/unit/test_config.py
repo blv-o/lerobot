@@ -349,6 +349,37 @@ def test_range_limits_are_inclusive(tmp_path: Path, dotted: str, value: Any) -> 
     load(tmp_path, data)
 
 
+@pytest.mark.parametrize(("hold_ms", "accepted"), [(33, False), (20, False), (34, True)])
+def test_watchdog_hold_must_exceed_target_period(tmp_path: Path, hold_ms: int, accepted: bool) -> None:
+    """Con hold_ms <= target_period_ms, el follower se quedaría quieto entre dos consignas normales."""
+    data = base()
+    set_path(data, "follower.watchdog.hold_ms", hold_ms)
+    if accepted:
+        load(tmp_path, data)
+        return
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, data)
+    assert exc.value.field == "follower.watchdog.hold_ms"
+
+
+@pytest.mark.parametrize(("stop_ms", "accepted"), [(100, False), (101, True)])
+def test_watchdog_stop_must_exceed_servo_period(tmp_path: Path, stop_ms: int, accepted: bool) -> None:
+    """Con stop_ms <= 1000 / hz, el watchdog saltaría entre dos ciclos RTDE normales.
+
+    Con hz=125 el límite (8 ms) queda por debajo de hold_ms: se baja hz para aislar esta regla.
+    """
+    data = base()
+    set_path(data, "follower.servo.hz", 10)
+    set_path(data, "follower.watchdog.hold_ms", 50)
+    set_path(data, "follower.watchdog.stop_ms", stop_ms)
+    if accepted:
+        load(tmp_path, data)
+        return
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, data)
+    assert exc.value.field == "follower.watchdog.stop_ms"
+
+
 @pytest.mark.parametrize(
     ("dotted", "value"),
     [

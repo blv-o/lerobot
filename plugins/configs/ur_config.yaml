@@ -33,8 +33,8 @@ follower:
     max_joint_speed_deg_s: 60    # incremento máximo por articulación entre consignas consecutivas
     target_period_ms: 33         # = 1000 / --fps de LeRobot (30 fps ↔ 33 ms)
   watchdog:
-    hold_ms: 100                 # sin consigna nueva → mantiene la última posición
-    stop_ms: 500                 # sin consigna nueva → parada (debe ser > hold_ms)
+    hold_ms: 100                 # sin consigna nueva → mantiene la última posición (> target_period_ms)
+    stop_ms: 500                 # sin consigna nueva → parada (> hold_ms y > 1000 / servo.hz)
 
 start_pose_deg: [0, -90, 90, -90, -90, 0]   # posición inicial de ambos robots, en el orden base..wrist_3
 start_tolerance_deg: 2
