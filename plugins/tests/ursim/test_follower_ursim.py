@@ -82,6 +82,18 @@ def wait_until(predicate: Any, timeout_s: float, what: str) -> None:
 # El controlador rechaza desbloquear una parada de protección antes de 5 s desde que ocurrió.
 PROTECTIVE_STOP_UNLOCK_DELAY_S = 5.0
 PROTECTIVE_STOP_RELEASE_TIMEOUT_S = 10.0
+# Medido en URSim: el Dashboard informa de la parada 0,25-0,5 s después de que pare el programa.
+PROTECTIVE_STOP_APPEAR_TIMEOUT_S = 2.0
+
+
+def protective_stop_appears() -> bool:
+    """Espera a que el Dashboard informe de la parada; False si no llega (el test falló antes)."""
+    deadline_ns = now_ns() + round(PROTECTIVE_STOP_APPEAR_TIMEOUT_S * 1e9)
+    while now_ns() < deadline_ns:
+        if dashboard("safetystatus") == "Safetystatus: PROTECTIVE_STOP":
+            return True
+        time.sleep(0.1)
+    return False
 
 
 def release_protective_stop() -> None:
@@ -91,7 +103,7 @@ def release_protective_stop() -> None:
     en parada de protección; sin desbloquearla, los tests siguientes no pueden arrancar el
     follower. En un robot real la desbloquea el operario desde el teach pendant.
     """
-    if dashboard("safetystatus") != "Safetystatus: PROTECTIVE_STOP":
+    if not protective_stop_appears():
         return
     # La parada ocurrió antes de verla: esperar desde ahora garantiza los 5 s.
     time.sleep(PROTECTIVE_STOP_UNLOCK_DELAY_S)
@@ -308,7 +320,8 @@ def test_killed_streaming_process_is_stopped_by_robot_watchdog() -> None:
     Distinto del test del padre matado: ahí el hijo sigue vivo, lo detecta y para ordenadamente
     (enable=0 y `stop` por el Dashboard). Aquí no queda nadie que lo haga: solo el watchdog RTDE
     del URScript (`rtde_set_watchdog` sobre input_int_register_0, frecuencia mínima
-    2 / watchdog.stop_s porque el controlador para tras ~2 periodos sin dato, acción "stop"). Con un `stop_s` largo se comprueba que es él quien para:
+    2 / watchdog.stop_s porque el controlador para tras ~2 periodos sin dato, acción "stop").
+    Con un `stop_s` largo se comprueba que es él quien para:
     sigue en marcha a mitad de `stop_s` y está parado poco después de `stop_s`. Y el padre tiene
     que enterarse en la siguiente llamada.
     """
