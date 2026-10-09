@@ -532,9 +532,8 @@ class StreamingLoop:
             if self._state == FollowerState.HOLD:
                 self._transition(FollowerState.RUN)
         age_ns = now_ns - t_ns
-        if age_ns > self._stop_ns:
-            self._transition(FollowerState.STOP, f"sin consignas nuevas durante {age_ns / 1e6:.0f} ms")
-            return
+        # Sin límite de tiempo: entre episodios de `lerobot-record` no llegan consignas. Si el
+        # padre muere, lo detecta `_external_stop`.
         if age_ns > self._hold_ns:
             if self._state == FollowerState.RUN:
                 self._transition(FollowerState.HOLD, f"sin consignas nuevas durante {age_ns / 1e6:.0f} ms")

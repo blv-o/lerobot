@@ -321,7 +321,7 @@ def test_early_target_starts_from_last_written_command() -> None:
     assert max(jumps) <= (0.02 - 0.0) * (1 / HZ) / 0.033 + EPS
 
 
-# --- HOLD y paradas por edad -------------------------------------------------------------------
+# --- HOLD -------------------------------------------------------------------------------------
 
 
 def test_hold_repeats_last_command_and_returns_to_run_on_new_target() -> None:
@@ -343,17 +343,16 @@ def test_hold_repeats_last_command_and_returns_to_run_on_new_target() -> None:
     assert all(q == pytest.approx(q1) for q in held)
 
 
-def test_stop_when_targets_stop_arriving_for_stop_time() -> None:
+def test_hold_lasts_without_time_limit_when_targets_stop_arriving() -> None:
+    """Entre episodios de `lerobot-record` no llegan consignas: el follower espera quieto."""
     q1 = offset(START_Q_RAD, 0, 0.01)
-    rig = Rig(packets(200), actions={5: send_at(q1)}).serve()
-    assert rig.state == FollowerState.STOP
-    assert "sin consignas" in rig.reason
-    _, t_target_ns, _ = rig.shared.try_read_target()  # la edad se cuenta desde que se envió
-    t_stop_ns = next(t for t, s, _ in rig.loop.events if s == FollowerState.STOP)
-    stop_after_s = (t_stop_ns - t_target_ns) / 1e9
-    assert FOLLOWER.watchdog.stop_s <= stop_after_s <= FOLLOWER.watchdog.stop_s + 2 / HZ
-    assert rig.rtde.written_enable()[-1] == 0
-    assert rig.dashboard.commands[-1] == "stop"
+    n = int(10 * FOLLOWER.watchdog.stop_s * HZ)
+    rig = Rig(packets(n), actions={5: send_at(q1)}).serve()
+    assert rig.states() == [FollowerState.WAIT, FollowerState.RUN, FollowerState.HOLD, FollowerState.STOP]
+    assert "stream" in rig.reason  # solo para al acabarse los paquetes
+    held = rig.rtde.written_q()[-20:-1]  # sin el enable=0 del cierre
+    assert all(q == pytest.approx(q1) for q in held)
+    assert set(rig.rtde.written_enable()[-20:-1]) == {1}
 
 
 # --- paradas por el robot -----------------------------------------------------------------------
