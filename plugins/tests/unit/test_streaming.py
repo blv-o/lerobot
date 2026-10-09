@@ -267,6 +267,16 @@ def test_first_target_far_from_pose_stops_without_ever_enabling() -> None:
     assert "stop" in rig.dashboard.commands
 
 
+@pytest.mark.parametrize(("offset_deg", "runs"), [(3.0, True), (3.9, True), (4.1, False)])
+def test_first_target_may_be_up_to_twice_the_start_tolerance_away(offset_deg: float, runs: bool) -> None:
+    """Cada robot puede arrancar a ± tolerancia de la posición inicial: entre sí, hasta el doble."""
+    first = offset(START_Q_RAD, 2, math.radians(offset_deg))
+    rig = Rig(packets(20), actions={5: send_at(first)}).serve()
+    assert (FollowerState.RUN in rig.states()) == runs
+    if not runs:
+        assert "primera consigna lejos de la posición actual" in rig.reason
+
+
 def test_first_target_within_tolerance_enables_and_respects_step_limit() -> None:
     near = offset(START_Q_RAD, 0, math.radians(1.9))
     rig = Rig(packets(30), actions={5: send_at(near)}).serve()

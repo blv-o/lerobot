@@ -511,11 +511,13 @@ class StreamingLoop:
             self._write(self._armed_q_rad, enable=0)
             return
         error_rad = max(abs(t - m) for t, m in zip(target_rad, pkt.actual_q, strict=True))
-        if error_rad > self._tol_rad:
+        # Leader y follower pasan cada uno el arranque a ± tolerancia: entre sí, hasta el doble.
+        max_error_rad = 2 * self._tol_rad
+        if error_rad > max_error_rad:
             self._transition(
                 FollowerState.STOP,
                 f"primera consigna lejos de la posición actual "
-                f"({math.degrees(error_rad):.1f}° > {math.degrees(self._tol_rad):.1f}°)",
+                f"({math.degrees(error_rad):.1f}° > {math.degrees(max_error_rad):.1f}°)",
             )
             return
         self._transition(FollowerState.RUN)
