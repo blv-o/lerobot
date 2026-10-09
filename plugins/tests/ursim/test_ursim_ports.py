@@ -20,7 +20,7 @@ DASHBOARD_PORT = 29999
     ("ip", "port"),
     [
         (FOLLOWER_IP, RTDE_PORT),
-        (FOLLOWER_IP, SECONDARY_PORT),
+        (LEADER_IP, SECONDARY_PORT),  # el helper de test que mueve el URSim leader le sube un URScript
         (FOLLOWER_IP, DASHBOARD_PORT),
         (LEADER_IP, RTDE_PORT),
     ],

@@ -1,13 +1,15 @@
 """Follower contra el URSim de plugins/ursim (127.0.0.2), preparado a mano desde PolyScope.
 
-Antes de lanzarlos (ver plugins/ursim/README.md): robot encendido con frenos sueltos, Remote
-Control activado y en modo Remote, y en la posición inicial de plugins/configs/ur_config.yaml.
+Antes de lanzarlos (ver plugins/ursim/README.md): robot encendido con frenos sueltos, en modo
+Remote, con el programa del follower en su carpeta de programas y en la posición inicial de
+plugins/configs/ur_config.yaml. El modo Remote solo lo necesitan estos tests: antes de cada uno,
+`follower_program_playing` pone el programa en marcha por el Dashboard, como haría el operador
+con Play en el TP.
 
 Con `UR_RECORD_TRACES=1` además se graban en plugins/tests/traces/ las trazas RTDE del
 follower que usan los tests de replay (sin esa variable no se escribe nada).
 """
 
-import dataclasses
 import json
 import math
 import multiprocessing.process
@@ -56,8 +58,7 @@ def dashboard(command: str) -> str:
 
 
 def runtime_state() -> int:
-    """Estado del programa por RTDE. `programState` del Dashboard no sirve: solo informa del
-    programa .urp cargado, no de un URScript subido por la interfaz secundaria."""
+    """Estado del programa por RTDE: el mismo dato con el que el bucle decide si sigue en marcha."""
     con = rtde.RTDE(FOLLOWER_IP, RTDE_PORT)
     con.connect()
     try:
@@ -103,8 +104,11 @@ def release_protective_stop() -> None:
     en parada de protección; sin desbloquearla, los tests siguientes no pueden arrancar el
     follower. En un robot real la desbloquea el operario desde el teach pendant.
     """
-    if not protective_stop_appears():
-        return
+    if protective_stop_appears():
+        unlock_protective_stop()
+
+
+def unlock_protective_stop() -> None:
     # La parada ocurrió antes de verla: esperar desde ahora garantiza los 5 s.
     time.sleep(PROTECTIVE_STOP_UNLOCK_DELAY_S)
     reply = dashboard("unlock protective stop")
@@ -148,6 +152,38 @@ def _plain(value: Any) -> Any:
     return list(value) if isinstance(value, list | tuple) else value
 
 
+# Programa del URSim follower (carpeta plugins/ursim/programs/follower del checkout principal, no
+# versionada): un nodo Script que carga plugins/tp/follower_control.script.
+FOLLOWER_PROGRAM = "/ursim/programs/follower_tp.urp"
+PROGRAM_START_TIMEOUT_S = 10.0
+
+
+@pytest.fixture(autouse=True)
+def follower_program_playing() -> None:
+    """Pone en marcha el programa del follower antes de cada test, como el operador con Play.
+
+    Solo de test (el código del follower nunca lo hace) y con URSim en modo Remote. Siempre desde
+    cero: una instancia que quedara de otro test podría tener ya el watchdog activo.
+    """
+    if dashboard("safetystatus") == "Safetystatus: PROTECTIVE_STOP":
+        unlock_protective_stop()
+    if program_running():
+        dashboard("stop")
+        wait_until(lambda: not program_running(), PROGRAM_START_TIMEOUT_S, "programa anterior parado")
+    replies = [dashboard(f"load {FOLLOWER_PROGRAM}")]
+
+    def playing() -> bool:
+        if program_running():
+            return True
+        replies.append(dashboard("play"))  # puede rechazarse mientras aún carga: se reintenta
+        return False
+
+    try:
+        wait_until(playing, PROGRAM_START_TIMEOUT_S, "programa del follower en marcha")
+    except AssertionError as exc:
+        raise AssertionError(f"{exc}; respuestas del Dashboard: {replies}") from exc
+
+
 @pytest.fixture
 def core() -> Iterator[UrFollowerCore]:
     core = UrFollowerCore(CONFIG)
@@ -156,8 +192,7 @@ def core() -> Iterator[UrFollowerCore]:
 
 
 def test_follower_is_ready_for_teleop() -> None:
-    """Remote Control real por el Dashboard y posición inicial: lo que pide el arranque."""
-    assert dashboard("is in remote control") == "true"
+    """Posición inicial leída por RTDE: lo que comprueba el arranque."""
     assert UrFollowerCore(CONFIG).check_start() == []
 
 
@@ -175,8 +210,8 @@ def test_rtde_mode_values_match_the_ones_the_loop_expects() -> None:
     assert dashboard("safetystatus") == "Safetystatus: NORMAL" and pkt.safety_mode == 1
 
 
-def test_armed_follower_stays_still_in_wait_with_script_playing(core: UrFollowerCore) -> None:
-    """Si runtime_state no fuera PLAYING (= 2) con el URScript corriendo, el bucle pararía."""
+def test_armed_follower_stays_still_in_wait_with_program_playing(core: UrFollowerCore) -> None:
+    """Si runtime_state no fuera PLAYING (= 2) con el programa del TP corriendo, el bucle pararía."""
     core.connect()
     q0 = core.get_joints()
     assert program_running()
@@ -307,22 +342,17 @@ def test_killed_parent_process_stops_the_robot_within_stop_time() -> None:
     assert stopped_after_s <= CONFIG.follower.watchdog.stop_s
 
 
-# Watchdog largo: una parada ordenada al salir se ve muy por debajo de él; la del watchdog, no.
-EXIT_WATCHDOG_STOP_S = 2.0
 EXIT_STREAMING_S = 1.0
 
 EXITING_PARENT_SCRIPT = """
-import dataclasses, sys, time
+import sys, time
 from ur_core import UrFollowerCore, load_config
 from ur_core.clock import now_ns
-config = load_config(sys.argv[1])
-watchdog = dataclasses.replace(config.follower.watchdog, stop_s=float(sys.argv[2]))
-config = dataclasses.replace(config, follower=dataclasses.replace(config.follower, watchdog=watchdog))
-core = UrFollowerCore(config)
+core = UrFollowerCore(load_config(sys.argv[1]))
 core.connect()
 q0 = core.get_joints()
 print("ready", flush=True)
-end_ns = now_ns() + round(float(sys.argv[3]) * 1e9)
+end_ns = now_ns() + round(float(sys.argv[2]) * 1e9)
 while now_ns() < end_ns:
     core.send_joints(q0)
     time.sleep(1 / 30)
@@ -336,15 +366,9 @@ def test_parent_exiting_without_disconnect_stops_the_robot_in_order() -> None:
     él): el cierre al salir del intérprete tiene que pasar por la parada ordenada del hijo, no
     terminarlo y dejar que lo pare el watchdog del robot (que lo deja en parada de protección)."""
     assert dashboard("safetystatus") == "Safetystatus: NORMAL"
+    stop_s = CONFIG.follower.watchdog.stop_s
     parent = subprocess.Popen(
-        [
-            sys.executable,
-            "-c",
-            EXITING_PARENT_SCRIPT,
-            str(CONFIG_PATH),
-            str(EXIT_WATCHDOG_STOP_S),
-            str(EXIT_STREAMING_S),
-        ],
+        [sys.executable, "-c", EXITING_PARENT_SCRIPT, str(CONFIG_PATH), str(EXIT_STREAMING_S)],
         stdout=subprocess.PIPE,
         text=True,
         env={**os.environ},
@@ -354,7 +378,7 @@ def test_parent_exiting_without_disconnect_stops_the_robot_in_order() -> None:
         wait_until(program_running, 2.0, "programa en marcha")
         assert parent.stdout.readline().strip() == "exiting"
         exiting_ns = now_ns()
-        wait_until(lambda: not program_running(), EXIT_WATCHDOG_STOP_S + 5.0, "programa parado")
+        wait_until(lambda: not program_running(), stop_s + 5.0, "programa parado")
         stopped_after_s = (now_ns() - exiting_ns) / 1e9
         protective_stop = protective_stop_appears()
         print(
@@ -363,7 +387,7 @@ def test_parent_exiting_without_disconnect_stops_the_robot_in_order() -> None:
         )
         assert parent.wait(timeout=30) == 0
         assert not protective_stop, "el follower quedó en parada de protección: lo paró el watchdog"
-        assert stopped_after_s < EXIT_WATCHDOG_STOP_S / 4, "parada demasiado lenta para ser la ordenada"
+        assert stopped_after_s < stop_s, "parada demasiado lenta para ser la ordenada"
     finally:
         if parent.poll() is None:
             parent.kill()
@@ -373,26 +397,21 @@ def test_parent_exiting_without_disconnect_stops_the_robot_in_order() -> None:
 
 # El sondeo de `program_running()` abre una conexión RTDE nueva en cada llamada.
 WATCHDOG_POLL_MARGIN_S = 0.3
-# Watchdog largo para este test: a mitad de él el programa tiene que seguir en marcha, así se
-# distingue del cierre del socket RTDE del hijo u otra vía que lo parase al instante.
-LONG_WATCHDOG_STOP_S = 2.0
 
 
 def test_killed_streaming_process_is_stopped_by_robot_watchdog() -> None:
     """Muerte brusca del proceso de streaming (el hijo): lo para el watchdog del robot.
 
     Distinto del test del padre matado: ahí el hijo sigue vivo, lo detecta y para ordenadamente
-    (enable=0 y `stop` por el Dashboard). Aquí no queda nadie que lo haga: solo el watchdog RTDE
-    del URScript (`rtde_set_watchdog` sobre input_int_register_0, frecuencia mínima
-    2 / watchdog.stop_s porque el controlador para tras ~2 periodos sin dato, acción "stop").
-    Con un `stop_s` largo se comprueba que es él quien para:
-    sigue en marcha a mitad de `stop_s` y está parado poco después de `stop_s`. Y el padre tiene
-    que enterarse en la siguiente llamada.
+    (enable=0 y `stop` por el Dashboard), sin parada de protección. Aquí no queda nadie que lo
+    haga: solo el watchdog RTDE del programa del TP (`rtde_set_watchdog` sobre
+    input_int_register_0, a 2 / stop_s Hz porque el controlador para tras ~2 periodos sin dato,
+    acción "stop"). Su valor está fijo en el programa, así que la prueba de que es él quien para
+    es la parada de protección que deja (C207): los registros guardan su último valor, y sin
+    watchdog el programa seguiría con enable=1. Y el padre tiene que enterarse en la siguiente
+    llamada.
     """
-    watchdog = dataclasses.replace(CONFIG.follower.watchdog, stop_s=LONG_WATCHDOG_STOP_S)
-    assert watchdog.hold_s < watchdog.stop_s
-    # El URScript toma la frecuencia del watchdog de esta config: tiene que ser la del follower.
-    config = dataclasses.replace(CONFIG, follower=dataclasses.replace(CONFIG.follower, watchdog=watchdog))
+    stop_s = CONFIG.follower.watchdog.stop_s
     processes: list[multiprocessing.process.BaseProcess] = []
 
     def launch(follower: FollowerConfig, start_tolerance_rad: float, shared: SharedState) -> Worker:
@@ -401,42 +420,27 @@ def test_killed_streaming_process_is_stopped_by_robot_watchdog() -> None:
         processes.append(worker)
         return worker
 
-    core = UrFollowerCore(config, launch=launch)
+    core = UrFollowerCore(CONFIG, launch=launch)
     try:
         core.connect()
         q0 = core.get_joints()
         core.send_joints(q0)
         wait_until(lambda: core.status().state == FollowerState.RUN, 2.0, "RUN")
-
-        def running_while_fed() -> bool:
-            # Cada sondeo abre una conexión RTDE y puede tardar: sin consignas, el hijo pararía
-            # por su cuenta (watchdog.stop_s) antes de matarlo.
-            core.send_joints(q0)
-            return program_running()
-
-        wait_until(running_while_fed, 2.0, "programa en marcha")
-        core.send_joints(q0)
+        assert program_running()
         processes[0].kill()
         killed_ns = now_ns()
         processes[0].join(timeout=5)
         assert processes[0].exitcode not in (0, None)
 
-        time.sleep(max(0.0, watchdog.stop_s / 2 - (now_ns() - killed_ns) / 1e9))
-        running_at_half = program_running()
-        probed_after_s = (now_ns() - killed_ns) / 1e9
-        assert probed_after_s < watchdog.stop_s, (
-            f"el sondeo a mitad del watchdog tardó {probed_after_s:.2f} s"
-        )
-        assert running_at_half, "el programa paró antes que el watchdog: lo paró otra vía"
-
-        wait_until(lambda: not program_running(), watchdog.stop_s + 5.0, "programa parado")
+        wait_until(lambda: not program_running(), stop_s + 5.0, "programa parado")
         stopped_after_s = (now_ns() - killed_ns) / 1e9
         print(f"parado {stopped_after_s * 1e3:.0f} ms después de matar el proceso de streaming")
         with pytest.raises(FollowerStoppedError, match="terminó sin publicar el motivo"):
             core.send_joints(q0)
         with pytest.raises(FollowerStoppedError, match="terminó sin publicar el motivo"):
             core.get_joints()
-        assert stopped_after_s <= watchdog.stop_s + WATCHDOG_POLL_MARGIN_S
+        assert stopped_after_s <= stop_s + WATCHDOG_POLL_MARGIN_S
+        assert protective_stop_appears(), "sin parada de protección: no lo paró el watchdog"
         core.disconnect()  # con el proceso ya muerto no debe fallar
     finally:
         core.disconnect()
