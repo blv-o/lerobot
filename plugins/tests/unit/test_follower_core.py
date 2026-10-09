@@ -310,6 +310,7 @@ def test_send_joints_after_stop_raises_with_reason(rig: Rig) -> None:
     wait_for(core, FollowerState.STOP)
     with pytest.raises(FollowerStoppedError, match="primera consigna lejos"):
         core.send_joints(NEAR)
+    assert core.is_connected  # hasta disconnect(), aunque el follower ya esté parado
     core.disconnect()
 
 

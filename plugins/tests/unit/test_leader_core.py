@@ -161,6 +161,7 @@ def test_lost_connection_raises(make_leader: Any) -> None:
     wait_until(lambda: not leader._thread.is_alive(), "el hilo de lectura termina")
     with pytest.raises(LeaderReadError, match="conexión"):
         leader.read_joints()
+    assert leader.is_connected  # hasta disconnect(), aunque se perdiera la conexión
     assert not rig.connections[0].connected
 
 
