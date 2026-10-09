@@ -2,8 +2,10 @@
 
     pytest plugins/tests -m timing -s
 
-Necesita el follower preparado como en los tests `ursim`. 60 s por escenario: a `servo.hz` 125 y
-500, sin carga y con carga de vídeo. La carga es la de `lerobot-record` con codificación en
+Necesita el URSim follower preparado como en los tests `ursim`: el programa `follower_tp.urp` en
+su carpeta de programas y, solo para que el test le dé Play por el Dashboard antes de cada
+escenario, el modo Remote. 60 s por escenario, a 125 Hz (el `t` de servoj del programa del TP),
+sin carga y con carga de vídeo. La carga es la de `lerobot-record` con codificación en
 directo (`--dataset.streaming_encoding=true --dataset.encoder_threads=2`): un hilo en el mismo
 proceso que usa el follower, codificando una cámara 640×480 a 30 fps con PyAV (ffmpeg) y las
 opciones de códec de LeRobot. El bucle de los joints corre en su propio proceso.
@@ -18,11 +20,12 @@ RTDE independiente con prioridad alta ve los mismos huecos y el `timestamp` del 
 es decir, en el reenvío de Docker/WSL. Ese tramo no existe con un UR real por Ethernet.
 """
 
-import dataclasses
+import importlib.util
 import threading
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 from ur_core import FollowerState, UrFollowerCore, load_config
@@ -34,15 +37,24 @@ SEND_HZ = 30
 VIDEO_FPS = 30
 VIDEO_SIZE = (640, 480)
 ENCODER_THREADS = 2  # el valor que recomienda lerobot-record para la codificación en directo
-# servo.hz → (p99 máximo, máximo), en s.
-LIMITS_S = {125: (0.010, 0.016), 500: (0.0025, 0.004)}
-# Solo los límites de jitter: una parada o un fallo al conectar a 500 Hz siguen siendo fallos.
-URSIM_500_HZ_XFAIL = (
-    "URSim en Docker se salta ciclos a 500 Hz (su `timestamp` salta 4–6 ms); "
-    "el límite de 4 ms se comprueba con un UR real"
-)
+P99_LIMIT_S = 0.010
+MAX_LIMIT_S = 0.016
 
 pytestmark = pytest.mark.timing
+
+
+def _load_follower_ursim() -> ModuleType:
+    """Los tests `ursim` del follower, cargados por ruta (están en otra carpeta de tests)."""
+    path = Path(__file__).parents[1] / "ursim" / "test_follower_ursim.py"
+    spec = importlib.util.spec_from_file_location("follower_ursim_program", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+# Autouse: el programa del follower en Play antes de cada escenario (tras una parada termina).
+follower_program_playing = _load_follower_ursim().follower_program_playing
 
 
 def _encode_video(stop: threading.Event, frames_encoded: list[int]) -> None:
@@ -93,11 +105,8 @@ def video_load(request: pytest.FixtureRequest) -> Iterator[None]:
 
 
 @pytest.mark.parametrize("video_load", [False, True], ids=["sin_video", "con_video"], indirect=True)
-@pytest.mark.parametrize("servo_hz", [125, 500])
-def test_loop_period_jitter(servo_hz: int, video_load: None) -> None:
-    servo = dataclasses.replace(CONFIG.follower.servo, hz=servo_hz)
-    config = dataclasses.replace(CONFIG, follower=dataclasses.replace(CONFIG.follower, servo=servo))
-    core = UrFollowerCore(config)
+def test_loop_period_jitter(video_load: None) -> None:
+    core = UrFollowerCore(CONFIG)
     core.connect()
     try:
         q0 = core.get_joints()
@@ -113,14 +122,10 @@ def test_loop_period_jitter(servo_hz: int, video_load: None) -> None:
         status = core.status()
     finally:
         core.disconnect()
-    p99_limit_s, max_limit_s = LIMITS_S[servo_hz]
     print(
-        f"\n{servo_hz} Hz: p50 {status.period_p50_s * 1e3:.2f} ms, peor p99 {worst_p99_s * 1e3:.2f} ms "
-        f"(límite {p99_limit_s * 1e3:.1f}), máx {status.period_max_s * 1e3:.2f} ms (límite {max_limit_s * 1e3:.1f})"
+        f"\np50 {status.period_p50_s * 1e3:.2f} ms, peor p99 {worst_p99_s * 1e3:.2f} ms "
+        f"(límite {P99_LIMIT_S * 1e3:.1f}), máx {status.period_max_s * 1e3:.2f} ms (límite {MAX_LIMIT_S * 1e3:.1f})"
     )
     assert status.state != FollowerState.STOP, status.stop_reason
-    within_limits = worst_p99_s < p99_limit_s and status.period_max_s < max_limit_s
-    if servo_hz == 500 and not within_limits:
-        pytest.xfail(URSIM_500_HZ_XFAIL)
-    assert worst_p99_s < p99_limit_s
-    assert status.period_max_s < max_limit_s
+    assert worst_p99_s < P99_LIMIT_S
+    assert status.period_max_s < MAX_LIMIT_S
