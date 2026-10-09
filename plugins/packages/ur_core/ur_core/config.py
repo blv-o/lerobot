@@ -21,6 +21,9 @@ LOW_COST_LEADER_TYPES = ("feetech", "as5600")
 DIRECTIONS = ("normal", "invertido")
 GAIN_RANGE = (100, 2000)
 LOOKAHEAD_RANGE_S = (0.03, 0.2)
+# Cada robot puede arrancar a ± esta tolerancia de la posición inicial, así que entre sí pueden
+# estar al doble: más de 5° haría que la primera consigna pidiera un salto.
+MAX_START_TOLERANCE_DEG = 5
 N_JOINTS = 6
 # Orden del controlador UR (el mismo que `actual_q`), usado en todo el paquete.
 JOINT_NAMES = ("base", "shoulder", "elbow", "wrist_1", "wrist_2", "wrist_3")
@@ -218,7 +221,7 @@ def _validate(c: dict[str, Any]) -> None:
     _check_positive("follower.servo.target_period_ms", servo["target_period_ms"])
     _check_watchdog(watchdog, servo)
     _check_start_pose(c["start_pose_deg"])
-    _check_positive("start_tolerance_deg", c["start_tolerance_deg"])
+    _check_start_tolerance(c["start_tolerance_deg"])
 
 
 def _check_leader(leader: dict[str, Any]) -> None:
@@ -286,6 +289,14 @@ def _check_watchdog(watchdog: dict[str, Any], servo: dict[str, Any]) -> None:
         raise ConfigError(
             "follower.watchdog.stop_ms",
             f"debe ser > 1000 / servo.hz ({watchdog['stop_ms']} <= {servo_period_ms:g})",
+        )
+
+
+def _check_start_tolerance(tolerance_deg: Any) -> None:
+    _check_positive("start_tolerance_deg", tolerance_deg)
+    if tolerance_deg > MAX_START_TOLERANCE_DEG:
+        raise ConfigError(
+            "start_tolerance_deg", f"debe ser <= {MAX_START_TOLERANCE_DEG} (vale {tolerance_deg})"
         )
 
 

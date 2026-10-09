@@ -402,6 +402,20 @@ def test_non_positive_value_is_rejected(tmp_path: Path, dotted: str, value: Any)
     assert exc.value.field == dotted
 
 
+@pytest.mark.parametrize(("tolerance_deg", "accepted"), [(5, True), (5.1, False), (30, False)])
+def test_start_tolerance_has_an_upper_limit(tmp_path: Path, tolerance_deg: float, accepted: bool) -> None:
+    """Con una tolerancia grande, los dos robots arrancarían lejos entre sí y la primera consigna
+    pediría un salto."""
+    data = base()
+    set_path(data, "start_tolerance_deg", tolerance_deg)
+    if accepted:
+        load(tmp_path, data)
+        return
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, data)
+    assert exc.value.field == "start_tolerance_deg"
+
+
 @pytest.mark.parametrize(
     ("dotted", "value"),
     [
