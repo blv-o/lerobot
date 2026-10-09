@@ -60,13 +60,16 @@ def moving_packets(hz: float = 500) -> Iterator[dict[str, Any]]:
 class Rig:
     """Una `FakeRTDE` nueva por conexión, como el cliente real; guarda todas para los asserts."""
 
-    def __init__(self, pkts: Any = ticking_packets, fail: tuple[str, ...] = ()) -> None:
+    def __init__(
+        self, pkts: Any = ticking_packets, fail: tuple[str, ...] = (), hz: float = LEADER.rtde_hz
+    ) -> None:
         self._pkts = pkts
         self._fail = fail
+        self._hz = hz
         self.connections: list[FakeRTDE] = []
 
     def factory(self, _ip: str) -> FakeRTDE:
-        self.connections.append(FakeRTDE(self._pkts(), hz=LEADER.rtde_hz, fail=self._fail))
+        self.connections.append(FakeRTDE(self._pkts(), hz=self._hz, fail=self._fail))
         return self.connections[-1]
 
 
@@ -118,7 +121,7 @@ def test_reader_thread_is_daemon(make_leader: Any) -> None:
 
 def test_read_joints_does_not_wait_for_the_robot(make_leader: Any) -> None:
     slow = dataclasses.replace(LEADER, rtde_hz=2, timeout_s=10.0)  # un paquete cada 0,5 s
-    leader = make_leader(Rig(), dataclasses.replace(LEADER_CONFIG, leader=slow))
+    leader = make_leader(Rig(hz=slow.rtde_hz), dataclasses.replace(LEADER_CONFIG, leader=slow))
     leader.connect()
     t0_ns = now_ns()
     for _ in range(100):
