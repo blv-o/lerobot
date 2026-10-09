@@ -148,9 +148,13 @@ def _leader_schema(leader: Any) -> dict[str, Any]:
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
-    # utf-8 explícito: en Windows el defecto es cp1252 y el YAML lleva comentarios en español.
-    with open(path, encoding="utf-8") as f:
-        raw = yaml.safe_load(f)
+    # Ruta absoluta: la da el usuario, a menudo relativa a una carpeta que no es la que cree.
+    try:
+        # utf-8 explícito: en Windows el defecto es cp1252 y el YAML lleva comentarios en español.
+        with open(path, encoding="utf-8") as f:
+            raw = yaml.safe_load(f)
+    except OSError as exc:
+        raise ConfigError(str(Path(path).absolute()), f"no se puede leer el YAML ({exc.strerror})") from exc
     if not isinstance(raw, dict):
         raise ConfigError("<raíz>", "el YAML debe ser un diccionario de claves")
     return raw

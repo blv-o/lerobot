@@ -484,6 +484,17 @@ def test_wrong_shape_raises_config_error(tmp_path: Path, dotted: str, value: Any
     assert exc.value.field == dotted
 
 
+@pytest.mark.parametrize("name", ["no_existe.yaml", "."])
+def test_unreadable_yaml_names_its_absolute_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    """La ruta la da el usuario, a menudo relativa: el error dice qué fichero buscó de verdad."""
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ConfigError) as exc:
+        load_config(Path(name))
+    assert str((tmp_path / name).absolute()) in str(exc.value)
+
+
 @pytest.mark.parametrize("content", ["", "- 1\n- 2\n", "solo texto\n"])
 def test_root_must_be_a_mapping(tmp_path: Path, content: str) -> None:
     path = tmp_path / "ur_config.yaml"
