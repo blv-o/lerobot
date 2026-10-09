@@ -26,10 +26,8 @@ leader:
 follower:
   type: ur3e                     # mismos modelos que el leader
   ip: {sim: 127.0.0.2, real: 192.168.1.10}
-  servo:
+  servo:                         # gain y lookahead de servoj viven solo en el programa del TP
     hz: 125                      # frecuencia RTDE y t de servoj = 1/hz (el programa del TP, plugins/tp/follower_control.script, debe llevar el mismo)
-    gain: 300                    # [100, 2000]
-    lookahead_s: 0.1             # [0.03, 0.2]
     max_joint_speed_deg_s: 60    # velocidad máxima por articulación: limita el paso de cada ciclo de servo a velocidad / hz
     target_period_ms: 33         # = 1000 / --fps de LeRobot (30 fps ↔ 33 ms)
   watchdog:

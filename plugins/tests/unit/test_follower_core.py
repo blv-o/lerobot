@@ -46,9 +46,7 @@ CONFIG = TeleopConfig(
     follower=FollowerConfig(
         type="ur3e",
         ip="127.0.0.2",
-        servo=ServoConfig(
-            hz=125, gain=300, lookahead_s=0.1, max_joint_speed_rad_s=math.radians(60), target_period_s=0.033
-        ),
+        servo=ServoConfig(hz=125, max_joint_speed_rad_s=math.radians(60), target_period_s=0.033),
         watchdog=WatchdogConfig(hold_s=0.1, stop_s=0.5),
     ),
     start_pose_rad=tuple(START_Q_RAD),

@@ -29,8 +29,6 @@ BASE: dict[str, Any] = {
         "ip": {"sim": FOLLOWER_SIM_IP, "real": FOLLOWER_REAL_IP},
         "servo": {
             "hz": 125,
-            "gain": 300,
-            "lookahead_s": 0.1,
             "max_joint_speed_deg_s": 60,
             "target_period_ms": 33,
         },
@@ -50,8 +48,6 @@ LEAF_KEYS = [
     "follower.type",
     "follower.ip",
     "follower.servo.hz",
-    "follower.servo.gain",
-    "follower.servo.lookahead_s",
     "follower.servo.max_joint_speed_deg_s",
     "follower.servo.target_period_ms",
     "follower.watchdog.hold_ms",
@@ -135,10 +131,8 @@ def test_values_are_converted_to_radians_and_seconds(tmp_path: Path) -> None:
     assert config.leader.rtde_hz == 500
     assert config.leader.timeout_s == pytest.approx(0.1)
     assert config.follower.servo.hz == 125
-    assert config.follower.servo.gain == 300
     assert config.follower.servo.max_joint_speed_rad_s == pytest.approx(math.radians(60))
     assert config.follower.servo.target_period_s == pytest.approx(0.033)
-    assert config.follower.servo.lookahead_s == pytest.approx(0.1)
     assert config.follower.watchdog.hold_s == pytest.approx(0.1)
     assert config.follower.watchdog.stop_s == pytest.approx(0.5)
 
@@ -147,7 +141,7 @@ def test_config_is_immutable(tmp_path: Path) -> None:
     config = load(tmp_path, base())
     assert isinstance(config.start_pose_rad, tuple)
     with pytest.raises(dataclasses.FrozenInstanceError):
-        config.follower.servo.gain = 1000  # type: ignore[misc]
+        config.follower.servo.hz = 500  # type: ignore[misc]
     with pytest.raises(dataclasses.FrozenInstanceError):
         config.leader = config.leader  # type: ignore[misc]
 
@@ -293,6 +287,9 @@ def test_low_cost_leader_values_are_validated(tmp_path: Path, dotted: str, value
         ("mapping", {"direction": ["normal"] * 6}),
         ("leader.port", "COM3"),
         ("follower.servo.foo", 1),
+        # Solo viven en el programa del TP: en el YAML no harían nada.
+        ("follower.servo.gain", 300),
+        ("follower.servo.lookahead_s", 0.1),
     ],
 )
 def test_unknown_key_is_rejected(tmp_path: Path, dotted: str, value: Any) -> None:
@@ -307,10 +304,6 @@ def test_unknown_key_is_rejected(tmp_path: Path, dotted: str, value: Any) -> Non
 @pytest.mark.parametrize(
     ("dotted", "value"),
     [
-        ("follower.servo.gain", 99),
-        ("follower.servo.gain", 2001),
-        ("follower.servo.lookahead_s", 0.02),
-        ("follower.servo.lookahead_s", 0.21),
         ("follower.servo.hz", 0),
         ("follower.servo.hz", -125),
         ("leader.rtde_hz", 0),
@@ -319,8 +312,8 @@ def test_unknown_key_is_rejected(tmp_path: Path, dotted: str, value: Any) -> Non
         ("start_pose_deg", [0, -90, 90, -90, -90]),
         ("start_pose_deg", [0, -90, 90, -90, -90, 0, 0]),
         ("start_pose_deg", [0, -90, 90, -90, -90, "a"]),
-        ("follower.servo.gain", True),
-        ("follower.servo.gain", "300"),
+        ("follower.servo.hz", True),
+        ("follower.servo.hz", "125"),
     ],
 )
 def test_out_of_range_value_is_rejected(tmp_path: Path, dotted: str, value: Any) -> None:
@@ -329,22 +322,6 @@ def test_out_of_range_value_is_rejected(tmp_path: Path, dotted: str, value: Any)
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, data)
     assert exc.value.field == dotted
-
-
-@pytest.mark.parametrize(
-    ("dotted", "value"),
-    [
-        ("follower.servo.gain", 100),
-        ("follower.servo.gain", 2000),
-        ("follower.servo.lookahead_s", 0.03),
-        ("follower.servo.lookahead_s", 0.2),
-        ("follower.watchdog.hold_ms", 499),
-    ],
-)
-def test_range_limits_are_inclusive(tmp_path: Path, dotted: str, value: Any) -> None:
-    data = base()
-    set_path(data, dotted, value)
-    load(tmp_path, data)
 
 
 @pytest.mark.parametrize(("hold_ms", "accepted"), [(33, False), (20, False), (34, True)])
@@ -429,8 +406,6 @@ def test_start_tolerance_has_an_upper_limit(tmp_path: Path, tolerance_deg: float
         ("follower.servo.max_joint_speed_deg_s", float("inf")),
         ("follower.servo.hz", float("nan")),
         ("follower.servo.hz", float("inf")),
-        ("follower.servo.gain", float("nan")),
-        ("follower.servo.gain", float("inf")),
         ("start_pose_deg", [0, -90, float("nan"), -90, -90, 0]),
         ("start_pose_deg", [0, -90, 90, -90, -90, float("-inf")]),
     ],

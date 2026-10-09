@@ -19,8 +19,6 @@ UR_TYPES = ("ur3e", "ur5e", "ur7e", "ur10e", "ur12e", "ur15", "ur16e", "ur20", "
 # Réplicas de bajo coste con la cinemática del UR, leídas por un puerto serie; solo como leader.
 LOW_COST_LEADER_TYPES = ("feetech", "as5600")
 DIRECTIONS = ("normal", "invertido")
-GAIN_RANGE = (100, 2000)
-LOOKAHEAD_RANGE_S = (0.03, 0.2)
 # Cada robot puede arrancar a ± esta tolerancia de la posición inicial, así que entre sí pueden
 # estar al doble: más de 5° haría que la primera consigna pidiera un salto.
 MAX_START_TOLERANCE_DEG = 5
@@ -46,8 +44,6 @@ SCHEMA: dict[str, Any] = {
         "ip": None,
         "servo": {
             "hz": None,
-            "gain": None,
-            "lookahead_s": None,
             "max_joint_speed_deg_s": None,
             "target_period_ms": None,
         },
@@ -86,9 +82,9 @@ class LowCostLeaderConfig:
 
 @dataclass(frozen=True)
 class ServoConfig:
+    """`gain` y `lookahead` de servoj no están aquí: solo viven en el programa del TP."""
+
     hz: float
-    gain: float
-    lookahead_s: float
     max_joint_speed_rad_s: float
     target_period_s: float
 
@@ -219,8 +215,6 @@ def _validate(c: dict[str, Any]) -> None:
         )
     _check_text("follower.ip", follower["ip"])
     _check_positive("follower.servo.hz", servo["hz"])
-    _check_range("follower.servo.gain", servo["gain"], GAIN_RANGE)
-    _check_range("follower.servo.lookahead_s", servo["lookahead_s"], LOOKAHEAD_RANGE_S)
     _check_positive("follower.servo.max_joint_speed_deg_s", servo["max_joint_speed_deg_s"])
     _check_positive("follower.servo.target_period_ms", servo["target_period_ms"])
     _check_watchdog(watchdog, servo)
@@ -255,7 +249,7 @@ def _check_text(field: str, value: Any) -> None:
 
 
 def _check_number(field: str, value: Any) -> None:
-    # bool es subclase de int en Python, pero `gain: true` es un error del YAML, no un 1.
+    # bool es subclase de int en Python, pero `hz: true` es un error del YAML, no un 1.
     # `.nan` pasa cualquier comparación (`nan <= 0` es False) y `.inf` cualquier `> 0`.
     if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
         raise ConfigError(field, f"debe ser un número finito (vale {value!r})")
@@ -265,13 +259,6 @@ def _check_positive(field: str, value: Any) -> None:
     _check_number(field, value)
     if value <= 0:
         raise ConfigError(field, f"debe ser > 0 (vale {value})")
-
-
-def _check_range(field: str, value: Any, limits: tuple[float, float]) -> None:
-    _check_number(field, value)
-    low, high = limits
-    if not low <= value <= high:
-        raise ConfigError(field, f"fuera de [{low}, {high}] (vale {value})")
 
 
 def _check_watchdog(watchdog: dict[str, Any], servo: dict[str, Any]) -> None:
@@ -331,8 +318,6 @@ def _build(c: dict[str, Any]) -> TeleopConfig:
             ip=follower["ip"],
             servo=ServoConfig(
                 hz=servo["hz"],
-                gain=servo["gain"],
-                lookahead_s=servo["lookahead_s"],
                 max_joint_speed_rad_s=math.radians(servo["max_joint_speed_deg_s"]),
                 target_period_s=servo["target_period_ms"] / 1000,
             ),

@@ -36,8 +36,6 @@ FOLLOWER = FollowerConfig(
     ip="127.0.0.2",
     servo=ServoConfig(
         hz=HZ,
-        gain=300,
-        lookahead_s=0.1,
         max_joint_speed_rad_s=math.radians(60),
         target_period_s=0.033,
     ),

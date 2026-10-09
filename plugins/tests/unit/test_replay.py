@@ -19,9 +19,7 @@ HZ = 125
 FOLLOWER = FollowerConfig(
     type="ur3e",
     ip="127.0.0.2",
-    servo=ServoConfig(
-        hz=HZ, gain=300, lookahead_s=0.1, max_joint_speed_rad_s=math.radians(60), target_period_s=0.033
-    ),
+    servo=ServoConfig(hz=HZ, max_joint_speed_rad_s=math.radians(60), target_period_s=0.033),
     watchdog=WatchdogConfig(hold_s=0.1, stop_s=0.5),
 )
 MAX_STEP_RAD = math.radians(60) / HZ
