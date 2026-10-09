@@ -32,6 +32,8 @@ services:
       - "127.0.0.2:30004:30004"
     volumes:
       - ./programs/follower:/ursim/programs
+      # Programa del follower versionado: URSim lo ve sin copiarlo. Solo lectura.
+      - ../tp/follower_control.script:/ursim/programs/follower_control.script:ro
 
   ursim-leader:
     <<: *ursim

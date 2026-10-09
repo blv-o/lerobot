@@ -20,9 +20,11 @@ desde el TP).
 1. Abrir `http://127.0.0.2:6080/vnc.html` (follower) o `http://127.0.0.3:6080/vnc.html` (leader).
 2. Encender el robot: botón rojo de abajo a la izquierda → **ON** → **START** (suelta frenos) → **Exit**.
 3. **Solo en el follower**, el programa del TP:
-   - Copiar `plugins/tp/follower_control.script` a `plugins/ursim/programs/follower/`.
+   - `docker-compose.yml` monta `plugins/tp/follower_control.script` en la carpeta de programas (no hay
+     que copiarlo).
    - Programa `follower_tp.urp` con un nodo Script que cargue ese fichero. Darle a Play antes de cada
      sesión y tras cada parada.
+   - El script no puede llamarse como el `.urp`: al guardar `X.urp`, PolyScope genera `X.script` y lo pisa.
 4. **Solo para los tests `ursim`**, activar el control remoto (los tests cargan el programa y le dan a
    Play por el Dashboard):
    - Menú ☰ (arriba a la derecha) → **Settings** → **System** → **Remote Control** → **Enable** → **Exit**.
