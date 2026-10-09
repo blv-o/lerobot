@@ -316,8 +316,6 @@ def test_unknown_key_is_rejected(tmp_path: Path, dotted: str, value: Any) -> Non
         ("leader.rtde_hz", 0),
         ("follower.watchdog.hold_ms", 0),
         ("follower.watchdog.hold_ms", -1),
-        ("follower.watchdog.hold_ms", 500),
-        ("follower.watchdog.hold_ms", 600),
         ("start_pose_deg", [0, -90, 90, -90, -90]),
         ("start_pose_deg", [0, -90, 90, -90, -90, 0, 0]),
         ("start_pose_deg", [0, -90, 90, -90, -90, "a"]),
@@ -360,6 +358,14 @@ def test_watchdog_hold_must_exceed_target_period(tmp_path: Path, hold_ms: int, a
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, data)
     assert exc.value.field == "follower.watchdog.hold_ms"
+
+
+@pytest.mark.parametrize("hold_ms", [500, 600])
+def test_hold_may_reach_stop_time(tmp_path: Path, hold_ms: int) -> None:
+    """Sin consignas el follower se queda en HOLD sin límite: stop_ms ya no tiene que ver con hold_ms."""
+    data = base()
+    set_path(data, "follower.watchdog.hold_ms", hold_ms)
+    assert load(tmp_path, data).follower.watchdog.hold_s == pytest.approx(hold_ms / 1000)
 
 
 @pytest.mark.parametrize(("stop_ms", "accepted"), [(100, False), (101, True)])

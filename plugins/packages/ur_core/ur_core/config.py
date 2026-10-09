@@ -273,11 +273,6 @@ def _check_range(field: str, value: Any, limits: tuple[float, float]) -> None:
 def _check_watchdog(watchdog: dict[str, Any], servo: dict[str, Any]) -> None:
     _check_positive("follower.watchdog.hold_ms", watchdog["hold_ms"])
     _check_positive("follower.watchdog.stop_ms", watchdog["stop_ms"])
-    if watchdog["hold_ms"] >= watchdog["stop_ms"]:
-        raise ConfigError(
-            "follower.watchdog.hold_ms",
-            f"debe ser < stop_ms ({watchdog['hold_ms']} >= {watchdog['stop_ms']})",
-        )
     # Si no, saltarían con el ritmo normal: hold entre dos consignas, stop entre dos ciclos RTDE.
     if watchdog["hold_ms"] <= servo["target_period_ms"]:
         raise ConfigError(
