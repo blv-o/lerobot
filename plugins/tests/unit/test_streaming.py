@@ -137,9 +137,23 @@ def test_arm_declares_recipes_with_explicit_types() -> None:
         "output_int_register_0",
     ]
     assert len(types) == len(names) and frequency == HZ
-    # Una sola receta de entrada: consigna y enable llegan siempre juntos al robot.
-    command = [f"input_double_register_{i}" for i in range(6)] + ["input_int_register_0"]
-    assert rig.rtde.input_setups == [(command, ["DOUBLE"] * 6 + ["INT32"])]
+    # Una sola receta de entrada: consigna, enable y contador llegan siempre juntos al robot.
+    command = [f"input_double_register_{i}" for i in range(6)] + [
+        "input_int_register_0",
+        "input_int_register_1",
+    ]
+    assert rig.rtde.input_setups == [(command, ["DOUBLE"] * 6 + ["INT32", "INT32"])]
+
+
+def test_every_write_changes_the_counter_from_the_first_one() -> None:
+    """El programa del robot espera a que el contador cambie (no a un valor: los registros guardan
+    el último tras desconectar) antes de activar su watchdog; cambia también en WAIT, HOLD y el cierre."""
+    hold_cycles = math.ceil(FOLLOWER.watchdog.hold_s * HZ) + 3
+    rig = Rig(packets(5 + hold_cycles), actions={5: send_at(offset(START_Q_RAD, 0, 0.005))}).serve()
+    assert FollowerState.HOLD in rig.states()
+    counters = [fields["input_int_register_1"] for _, fields in rig.rtde.sent]
+    assert len(counters) == len(rig.rtde.sent) > hold_cycles
+    assert all(a != b for a, b in zip(counters, counters[1:], strict=False))
 
 
 def test_arm_writes_current_pose_disabled_before_uploading_script() -> None:
@@ -578,12 +592,15 @@ def test_stop_is_published_when_it_happens_not_after_a_slow_shutdown() -> None:
     assert rig.dashboard.commands == ["stop"]
 
 
-def test_every_write_carries_target_and_enable_together() -> None:
+def test_every_write_carries_target_enable_and_counter_together() -> None:
     """Con consigna y enable en paquetes separados, el robot podía ver enable=1 junto a la
     consigna del ciclo anterior."""
     near = offset(START_Q_RAD, 0, 0.005)
     rig = Rig(packets(20), actions={5: send_at(near), 15: lambda rig: rig.shared.request_stop()}).serve()
-    command = {f"input_double_register_{i}" for i in range(6)} | {"input_int_register_0"}
+    command = {f"input_double_register_{i}" for i in range(6)} | {
+        "input_int_register_0",
+        "input_int_register_1",
+    }
     assert rig.rtde.sent and all(set(fields) == command for _, fields in rig.rtde.sent)
 
 

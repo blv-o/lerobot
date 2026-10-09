@@ -52,9 +52,12 @@ OUTPUT_NAMES = [
 ]
 OUTPUT_TYPES = ["VECTOR6D", "DOUBLE", "INT32", "INT32", "UINT32", "INT32"]
 SETPOINT_NAMES = [f"input_double_register_{i}" for i in range(N_JOINTS)]
-# Una sola receta de entrada: consigna y enable llegan siempre juntos al robot, en un paquete.
-COMMAND_NAMES = [*SETPOINT_NAMES, "input_int_register_0"]
-COMMAND_TYPES = ["DOUBLE"] * N_JOINTS + ["INT32"]
+# Una sola receta de entrada: consigna, enable y contador llegan siempre juntos al robot.
+# El contador cambia en cada escritura: el programa del robot espera a verlo cambiar (no a un
+# valor, porque los registros guardan el último tras desconectar) antes de activar su watchdog.
+COMMAND_NAMES = [*SETPOINT_NAMES, "input_int_register_0", "input_int_register_1"]
+COMMAND_TYPES = ["DOUBLE"] * N_JOINTS + ["INT32", "INT32"]
+INT32_LIMIT = 2**31
 
 # Valores de RTDE (guía de RTDE de Universal Robots), con nombre para que los motivos se lean.
 ROBOT_MODES = {
@@ -311,6 +314,7 @@ class StreamingLoop:
         self._state = FollowerState.ARMING
         self._reason = ""
         self._command: Any = None
+        self._counter = 0
         self._script_sent = False
         self._armed_q_rad: list[float] = []
         self._last_cmd_rad: list[float] = []
@@ -414,7 +418,7 @@ class StreamingLoop:
 
     def _input_setup(self) -> Any:
         busy = (
-            "RTDE: registros de entrada input_double_register_0..5 / input_int_register_0 "
+            "RTDE: registros de entrada input_double_register_0..5 / input_int_register_0..1 "
             "no disponibles (¿los usa otro cliente RTDE o un bus de campo?)"
         )
         try:
@@ -581,6 +585,8 @@ class StreamingLoop:
         for i, value in enumerate(q_rad):
             setattr(self._command, SETPOINT_NAMES[i], value)
         self._command.input_int_register_0 = enable
+        self._counter = (self._counter + 1) % INT32_LIMIT
+        self._command.input_int_register_1 = self._counter
         # El cliente oficial devuelve False/None si no puede enviar, pero `sock.sendall` sí lanza
         # OSError (p. ej. conexión reiniciada).
         try:
