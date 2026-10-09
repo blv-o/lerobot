@@ -15,12 +15,11 @@ from multiprocessing.util import Finalize
 from typing import Protocol
 
 import rtde.rtde as rtde
-from rtde.rtde import RTDEException
 
 from ur_core.clock import now_ns
 from ur_core.config import N_JOINTS, UR_TYPES, FollowerConfig, TeleopConfig
 from ur_core.dashboard import DASHBOARD_TIMEOUT_S
-from ur_core.startup import pose_errors
+from ur_core.startup import check_pose, start_pose_text
 from ur_core.streaming import (
     ARM_TIMEOUT_S,
     LOCK_TIMEOUT_S,
@@ -104,12 +103,11 @@ class UrFollowerCore:
     # --- arranque -----------------------------------------------------------------------
     def start_prompt(self) -> str:
         follower = self._config.follower
-        pose = ", ".join(f"{round(math.degrees(q), 1):g}" for q in self._config.start_pose_rad)
-        tolerance = f"{round(math.degrees(self._config.start_tolerance_rad), 1):g}"
+        pose = start_pose_text(self._config.start_pose_rad, self._config.start_tolerance_rad)
         return (
             f"Follower {follower.type} ({follower.ip}), desde el Teach Pendant:\n"
             "  - Programa del follower cargado y en marcha (Play).\n"
-            f"  - Robot en la posición inicial [{pose}]° ± {tolerance}° (base..wrist_3).\n"
+            f"  - Robot en la posición inicial {pose} (base..wrist_3).\n"
             "¿Continuar? (yes/no): "
         )
 
@@ -119,35 +117,15 @@ class UrFollowerCore:
         Que el programa del TP esté en marcha no se mira aquí: lo comprueba `connect()` al ver su
         heartbeat, que es la única prueba de que corre el nuestro.
         """
-        ip = self._config.follower.ip
-        try:
-            q_rad = self._read_pose()
-        except (OSError, RTDEException) as exc:
-            return [f"follower: no se puede leer la posición por RTDE en {ip}: {exc}"]
-        return pose_errors("follower", q_rad, self._config.start_pose_rad, self._config.start_tolerance_rad)
-
-    def _read_pose(self) -> list[float]:
-        servo_hz = self._config.follower.servo.hz  # fuera del `try` del AttributeError: es código nuestro
-        con = self._rtde_factory(self._config.follower.ip)
-        try:
-            # Dentro del `try`: el cliente oficial abre el socket antes de negociar el protocolo,
-            # y si la negociación falla lo deja abierto. Su `disconnect()` es seguro sin socket.
-            con.connect()
-            try:
-                output_ok = con.send_output_setup(["actual_q"], ["VECTOR6D"], frequency=servo_hz)
-            except AttributeError as exc:
-                # El cliente oficial hace `result.types` sobre la respuesta sin comprobar que llegó.
-                raise RTDEException("el robot no respondió a la configuración RTDE") from exc
-            if not output_ok:
-                raise RTDEException("el robot rechazó la receta de salida actual_q")
-            if not con.send_start():
-                raise RTDEException("no se pudo iniciar la sincronización")
-            pkt = con.receive()
-            if pkt is None:
-                raise RTDEException("sin datos del robot")
-            return list(pkt.actual_q)
-        finally:
-            con.disconnect()
+        follower = self._config.follower
+        return check_pose(
+            "follower",
+            follower.ip,
+            self._rtde_factory(follower.ip),
+            follower.servo.hz,  # leído aquí: un AttributeError nuestro no es "el robot no respondió"
+            self._config.start_pose_rad,
+            self._config.start_tolerance_rad,
+        )
 
     def connect(self) -> None:
         """Lanza el proceso de streaming y vuelve cuando el follower está armado y quieto (WAIT)."""
