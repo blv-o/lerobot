@@ -8,9 +8,10 @@ Instala la librería `lerobot` completa (`src/`, sin cambios salvo lo indicado a
 
 | Dónde | Qué |
 |---|---|
-| `plugins/packages/lerobot_robot_ur_follower/` | Robot `ur_follower`: UR que sigue las consignas por RTDE (`servoj` en un URScript que lee registros RTDE). En desarrollo: hoy solo registra el tipo en LeRobot; la lógica del follower ya está en `ur_core` |
+| `plugins/packages/lerobot_robot_ur_follower/` | Robot `ur_follower`: UR que sigue las consignas por RTDE (`servoj` en un programa del Teach Pendant que lee registros RTDE). En desarrollo: hoy solo registra el tipo en LeRobot; la lógica del follower ya está en `ur_core` |
 | `plugins/packages/lerobot_teleoperator_ur_leader/` | Teleoperador `ur_leader`: UR en freedrive (se mueve a mano) del que solo se lee la posición articular. En desarrollo: hoy solo registra el tipo en LeRobot |
 | `plugins/packages/ur_core/` | Lógica de ambos, con el cliente RTDE oficial de UR: la del follower (`UrFollowerCore`) ya está implementada; la del leader, todavía no |
+| `plugins/tp/follower_control.script` | Programa del follower: se carga en el TP como nodo Script y se le da a Play antes de cada sesión y tras cada parada (el PC no lo sube ni necesita el modo Remote). Sus valores fijos deben coincidir con `servo.hz` y `watchdog.stop_ms` del YAML; `gain` y `lookahead` solo viven ahí |
 | `plugins/ursim/` | Dos URSim 5.25.2 (fijados por digest) en Docker para probar sin hardware |
 | `plugins/tests/` | Suite de los plugins |
 | `src/lerobot/common/train_utils.py` | `lerobot-train` no se cae en Windows al crear `checkpoints/last` (usa un *junction* si no se puede crear el symlink) |
