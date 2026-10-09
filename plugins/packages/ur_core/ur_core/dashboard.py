@@ -1,9 +1,8 @@
 """Cliente mínimo del Dashboard Server de UR (puerto 29999).
 
-Solo se usa para consultar (`is in remote control`) y para el `stop` de respaldo al parar el
-follower. Encender, soltar frenos o desbloquear paradas se hace desde el Teach Pendant, nunca
-desde aquí. Protocolo: una línea de texto por comando y una por respuesta, y una línea de
-bienvenida al conectar.
+Solo se usa para el `stop` de respaldo al parar el follower. Encender, soltar frenos o
+desbloquear paradas se hace desde el Teach Pendant, nunca desde aquí. Protocolo: una línea de
+texto por comando y una por respuesta, y una línea de bienvenida al conectar.
 """
 
 import socket

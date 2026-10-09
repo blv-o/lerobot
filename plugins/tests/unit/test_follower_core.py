@@ -554,27 +554,16 @@ def test_parent_exiting_without_disconnect_lets_the_streaming_process_finish_its
 
 
 def make_core(
-    remote: str = "true",
-    q_rad: list[float] = START_Q_RAD,
-    config: TeleopConfig = CONFIG,
-    **fail: tuple[str, ...],
+    q_rad: list[float] = START_Q_RAD, config: TeleopConfig = CONFIG, rtde_fail: tuple[str, ...] = ()
 ) -> UrFollowerCore:
     def rtde_factory(_ip: str) -> FakeRTDE:
-        return FakeRTDE(packets(1, q_rad=q_rad), hz=1000, fail=fail.get("rtde", ()))
+        return FakeRTDE(packets(1, q_rad=q_rad), hz=1000, fail=rtde_fail)
 
-    def dashboard_factory(_ip: str) -> FakeDashboard:
-        return FakeDashboard({"is in remote control": remote}, fail=fail.get("dashboard", ()))
-
-    return UrFollowerCore(config, rtde_factory=rtde_factory, dashboard_factory=dashboard_factory)
+    return UrFollowerCore(config, rtde_factory=rtde_factory)
 
 
-def test_check_start_ok_in_remote_control_and_start_pose() -> None:
+def test_check_start_ok_in_start_pose() -> None:
     assert make_core().check_start() == []
-
-
-def test_check_start_reports_local_mode() -> None:
-    errors = make_core(remote="false").check_start()
-    assert len(errors) == 1 and "Remote Control" in errors[0]
 
 
 def test_check_start_reports_joint_out_of_tolerance() -> None:
@@ -583,15 +572,14 @@ def test_check_start_reports_joint_out_of_tolerance() -> None:
     assert make_core(q_rad=q).check_start() == ["follower wrist_2: 5,3° fuera de tolerancia"]
 
 
-def test_check_start_reports_unreachable_dashboard_and_rtde() -> None:
-    errors = make_core(dashboard=("connect",), rtde=("connect",)).check_start()
-    assert len(errors) == 2
-    assert "Dashboard" in errors[0] and "RTDE" in errors[1]
+def test_check_start_reports_unreachable_rtde() -> None:
+    errors = make_core(rtde_fail=("connect",)).check_start()
+    assert len(errors) == 1 and "RTDE" in errors[0]
 
 
 def test_check_start_reports_robot_not_answering_the_rtde_setup() -> None:
     """El cliente oficial lanza AttributeError si la respuesta a la receta no llega a tiempo."""
-    errors = make_core(rtde=("setup_timeout",)).check_start()
+    errors = make_core(rtde_fail=("setup_timeout",)).check_start()
     assert len(errors) == 1
     assert "RTDE" in errors[0] and "no respondió" in errors[0]
 
@@ -613,19 +601,14 @@ def test_check_start_closes_the_rtde_socket_when_negotiation_fails() -> None:
         connections.append(FakeRTDE(packets(1), hz=1000, fail=("connect_protocol",)))
         return connections[-1]
 
-    def dashboard_factory(_ip: str) -> FakeDashboard:
-        return FakeDashboard({"is in remote control": "true"})
-
-    errors = UrFollowerCore(
-        CONFIG, rtde_factory=rtde_factory, dashboard_factory=dashboard_factory
-    ).check_start()
+    errors = UrFollowerCore(CONFIG, rtde_factory=rtde_factory).check_start()
     assert len(errors) == 1 and "RTDE" in errors[0]
     assert not connections[0].connected
 
 
 def test_start_prompt_tells_what_to_prepare_on_the_pendant() -> None:
     prompt = UrFollowerCore(CONFIG).start_prompt()
-    assert "Remote Control" in prompt
+    assert "Play" in prompt and "Remote" not in prompt
     assert "[0, -90, 90, -90, -90, 0]" in prompt and "± 2" in prompt
     assert "yes/no" in prompt
 

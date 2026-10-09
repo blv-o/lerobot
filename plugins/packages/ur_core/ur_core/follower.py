@@ -19,13 +19,12 @@ from rtde.rtde import RTDEException
 
 from ur_core.clock import now_ns
 from ur_core.config import N_JOINTS, UR_TYPES, FollowerConfig, TeleopConfig
-from ur_core.dashboard import DASHBOARD_TIMEOUT_S, DashboardClient
+from ur_core.dashboard import DASHBOARD_TIMEOUT_S
 from ur_core.startup import pose_errors
 from ur_core.streaming import (
     ARM_TIMEOUT_S,
     LOCK_TIMEOUT_S,
     RTDE_PORT,
-    Dashboard,
     FollowerStartError,
     FollowerState,
     FollowerStoppedError,
@@ -90,12 +89,10 @@ class UrFollowerCore:
         config: TeleopConfig,
         launch: Launcher = spawn_worker,
         rtde_factory: Callable[[str], RtdeConnection] = _rtde_connection,
-        dashboard_factory: Callable[[str], Dashboard] = DashboardClient,
     ) -> None:
         self._config = config
         self._launch = launch
         self._rtde_factory = rtde_factory
-        self._dashboard_factory = dashboard_factory
         self._shared: SharedState | None = None
         self._worker: Worker | None = None
         self._exit_disconnect: Finalize | None = None
@@ -111,37 +108,23 @@ class UrFollowerCore:
         tolerance = f"{round(math.degrees(self._config.start_tolerance_rad), 1):g}"
         return (
             f"Follower {follower.type} ({follower.ip}), desde el Teach Pendant:\n"
-            "  - Remote Control activado y modo Remote seleccionado.\n"
+            "  - Programa del follower cargado y en marcha (Play).\n"
             f"  - Robot en la posición inicial [{pose}]° ± {tolerance}° (base..wrist_3).\n"
             "¿Continuar? (yes/no): "
         )
 
     def check_start(self) -> list[str]:
-        """Problemas que impiden arrancar ([] = listo). No lanza: cada fallo es una línea."""
+        """Problemas que impiden arrancar ([] = listo). No lanza: cada fallo es una línea.
+
+        Que el programa del TP esté en marcha no se mira aquí: lo comprueba `connect()` al ver su
+        heartbeat, que es la única prueba de que corre el nuestro.
+        """
         ip = self._config.follower.ip
-        errors: list[str] = []
-        try:
-            answer = self._ask_dashboard("is in remote control")
-            if answer.strip().lower() != "true":
-                errors.append(f"follower: no está en Remote Control (el Dashboard responde {answer!r})")
-        except OSError as exc:
-            errors.append(f"follower: no se puede conectar al Dashboard de {ip}: {exc}")
         try:
             q_rad = self._read_pose()
-            errors += pose_errors(
-                "follower", q_rad, self._config.start_pose_rad, self._config.start_tolerance_rad
-            )
         except (OSError, RTDEException) as exc:
-            errors.append(f"follower: no se puede leer la posición por RTDE en {ip}: {exc}")
-        return errors
-
-    def _ask_dashboard(self, command: str) -> str:
-        dashboard = self._dashboard_factory(self._config.follower.ip)
-        dashboard.connect()
-        try:
-            return dashboard.send(command)
-        finally:
-            dashboard.close()
+            return [f"follower: no se puede leer la posición por RTDE en {ip}: {exc}"]
+        return pose_errors("follower", q_rad, self._config.start_pose_rad, self._config.start_tolerance_rad)
 
     def _read_pose(self) -> list[float]:
         servo_hz = self._config.follower.servo.hz  # fuera del `try` del AttributeError: es código nuestro
