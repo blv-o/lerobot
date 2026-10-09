@@ -27,7 +27,7 @@ follower:
   type: ur3e                     # mismos modelos que el leader
   ip: {sim: 127.0.0.2, real: 192.168.1.10}
   servo:
-    hz: 125                      # frecuencia RTDE y t de servoj = 1/hz
+    hz: 125                      # frecuencia RTDE y t de servoj = 1/hz (el programa del TP, plugins/tp/follower_control.script, debe llevar el mismo)
     gain: 300                    # [100, 2000]
     lookahead_s: 0.1             # [0.03, 0.2]
     max_joint_speed_deg_s: 60    # velocidad máxima por articulación: limita el paso de cada ciclo de servo a velocidad / hz
@@ -35,6 +35,7 @@ follower:
   watchdog:
     hold_ms: 100                 # sin consigna nueva → mantiene la última posición, sin límite de tiempo (> target_period_ms)
     stop_ms: 500                 # heartbeat del programa del robot parado → parada (> 1000 / servo.hz)
+                                 # el programa del TP debe llevar el mismo: watchdog a 2000 / stop_ms Hz
 
 start_pose_deg: [0, -90, 90, -90, -90, 0]   # posición inicial de ambos robots, en el orden base..wrist_3
 start_tolerance_deg: 2           # (0, 5]: los dos robots pueden quedar al doble entre sí

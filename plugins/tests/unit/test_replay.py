@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fakes import FakeClock, FakeDashboard, FakeRTDE, FakeSecondary
+from fakes import FakeClock, FakeDashboard, FakeRTDE
 from ur_core.config import FollowerConfig, ServoConfig, WatchdogConfig
 from ur_core.streaming import FollowerState, SharedState, StreamingLoop
 
@@ -52,7 +52,6 @@ def replay(trace: list[dict[str, Any]], first_target: int) -> tuple[StreamingLoo
         shared,
         rtde=rtde,
         dashboard=FakeDashboard(),
-        send_script=FakeSecondary(),
         clock=clock,
     )
     loop.serve()

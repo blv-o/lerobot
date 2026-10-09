@@ -27,7 +27,6 @@ from fakes import (
     START_Q_RAD,
     FakeDashboard,
     FakeRTDE,
-    FakeSecondary,
     endless_packets,
     packets,
 )
@@ -111,9 +110,7 @@ class Rig:
 
     def launch(self, follower: FollowerConfig, tol_rad: float, shared: SharedState) -> ThreadWorker:
         self.rtde = FakeRTDE(self._pkts(), hz=follower.servo.hz)  # sin reloj falso: ritmo real
-        loop = StreamingLoop(
-            follower, tol_rad, shared, rtde=self.rtde, dashboard=self.dashboard, send_script=FakeSecondary()
-        )
+        loop = StreamingLoop(follower, tol_rad, shared, rtde=self.rtde, dashboard=self.dashboard)
         self.worker = ThreadWorker(target=loop.serve, daemon=True)
         self.worker.start()
         return self.worker
@@ -206,7 +203,7 @@ def test_connect_gives_up_if_the_process_died_holding_the_shared_memory_lock(
 
 def test_connect_lets_a_follower_that_failed_to_arm_finish_its_shutdown() -> None:
     """STOP se publica en cuanto ocurre, antes del cierre: terminar el proceso entonces podría
-    dejar el script ya subido sin su `stop` por el Dashboard."""
+    dejar el programa del TP ya visto sin su `stop` por el Dashboard."""
     worker = ScriptedWorker(first=(FollowerState.STOP, "robot_mode=IDLE (5)"))
     core = UrFollowerCore(CONFIG, launch=worker.launch)
     with pytest.raises(FollowerStartError, match="robot_mode"):
@@ -480,7 +477,6 @@ def _fake_streaming_main(follower: FollowerConfig, tol_rad: float, shared: Share
         shared,
         rtde=FakeRTDE(endless_packets(), hz=follower.servo.hz),
         dashboard=FakeDashboard(),
-        send_script=FakeSecondary(),
         parent_alive=multiprocessing.parent_process().is_alive,
     ).serve()
 

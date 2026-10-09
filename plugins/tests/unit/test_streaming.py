@@ -22,14 +22,12 @@ from fakes import (
     FakeClock,
     FakeDashboard,
     FakeRTDE,
-    FakeSecondary,
     packet,
     packets,
 )
 from ur_core import FollowerStoppedError
 from ur_core.clock import now_ns
 from ur_core.config import FollowerConfig, ServoConfig, WatchdogConfig
-from ur_core.follower_script import render_follower_script
 from ur_core.streaming import ARM_TIMEOUT_S, PERIOD_WINDOW_S, FollowerState, SharedState, StreamingLoop
 
 HZ = 125
@@ -75,22 +73,15 @@ class Rig:
         bound = {k: (lambda f=f: f(self)) for k, f in (actions or {}).items()}
         self.rtde = FakeRTDE(pkts, clock=self.clock, hz=HZ, actions=bound, fail=fail)
         self.dashboard = dashboard or FakeDashboard(fail=dashboard_fail)
-        self.secondary = FakeSecondary()
-        self.sent_before_script: int | None = None
         self.loop = StreamingLoop(
             FOLLOWER,
             TOL_RAD,
             self.shared,
             rtde=self.rtde,
             dashboard=self.dashboard,
-            send_script=self._send_script,
             clock=self.clock,
             parent_alive=lambda: self.parent_is_alive,
         )
-
-    def _send_script(self, host: str, text: str) -> None:
-        self.sent_before_script = len(self.rtde.sent)
-        self.secondary(host, text)
 
     def target(self, q_rad: list[float]) -> None:
         """Lo que hará `UrFollowerCore.send_joints` en el padre."""
@@ -156,13 +147,11 @@ def test_every_write_changes_the_counter_from_the_first_one() -> None:
     assert all(a != b for a, b in zip(counters, counters[1:], strict=False))
 
 
-def test_arm_writes_current_pose_disabled_before_uploading_script() -> None:
+def test_arm_first_write_is_the_current_pose_disabled() -> None:
     rig = Rig(packets(3)).serve()
-    assert rig.sent_before_script is not None and rig.sent_before_script >= 1
     first = rig.rtde.sent[0][1]
     assert [first[f"input_double_register_{i}"] for i in range(6)] == START_Q_RAD
     assert first["input_int_register_0"] == 0
-    assert rig.secondary.scripts == [(FOLLOWER.ip, render_follower_script(FOLLOWER.servo, FOLLOWER.watchdog))]
 
 
 def test_arm_reaches_wait_when_heartbeat_changes() -> None:
@@ -195,13 +184,15 @@ def test_measured_pose_is_written_before_wait_even_if_the_lock_was_busy_while_ar
     assert shared.measured_at_wait == pytest.approx(START_Q_RAD)
 
 
-def test_arm_fails_if_heartbeat_never_changes() -> None:
+def test_arm_fails_with_play_hint_if_heartbeat_never_changes() -> None:
     frozen = [packet(START_Q_RAD, heartbeat=7) for _ in range(int(ARM_TIMEOUT_S * HZ) + 10)]
     rig = Rig(frozen).serve()
     assert rig.state == FollowerState.STOP
-    assert "heartbeat" in rig.reason
+    assert "el programa del follower no está en marcha: dale a Play en el TP" in rig.reason
     assert FollowerState.WAIT not in rig.states()
     assert 1 not in rig.rtde.written_enable()
+    # Sin heartbeat no se vio nuestro programa: no se manda `stop` a un programa ajeno.
+    assert "stop" not in rig.dashboard.commands
 
 
 @pytest.mark.parametrize(
@@ -218,11 +209,10 @@ def test_arm_fails_if_heartbeat_never_changes() -> None:
         ("setup_oserror", "durante la configuración"),
     ],
 )
-def test_rtde_setup_failures_stop_with_reason_and_no_script(fail: str, fragment: str) -> None:
+def test_rtde_setup_failures_stop_with_reason(fail: str, fragment: str) -> None:
     rig = Rig(packets(3), fail=(fail,)).serve()
     assert rig.state == FollowerState.STOP
     assert fragment in rig.reason
-    assert rig.secondary.scripts == []
     # No hay programa nuestro corriendo: no se manda `stop` a un programa ajeno.
     assert "stop" not in rig.dashboard.commands
 
@@ -244,7 +234,7 @@ def test_arm_refuses_robot_not_running() -> None:
     rig = Rig(packets(3, robot_mode=5)).serve()  # IDLE: frenos puestos
     assert rig.state == FollowerState.STOP
     assert "robot_mode" in rig.reason
-    assert rig.secondary.scripts == []
+    assert "stop" not in rig.dashboard.commands
 
 
 def test_arm_refuses_robot_in_protective_stop() -> None:
@@ -277,7 +267,7 @@ def test_first_target_far_from_pose_stops_without_ever_enabling() -> None:
     assert rig.state == FollowerState.STOP
     assert "primera consigna lejos de la posición actual" in rig.reason
     assert 1 not in rig.rtde.written_enable()
-    # El script nunca vio enable=1, así que no sale solo: lo para el Dashboard.
+    # El programa nunca vio enable=1, así que no sale solo: lo para el Dashboard.
     assert "stop" in rig.dashboard.commands
 
 

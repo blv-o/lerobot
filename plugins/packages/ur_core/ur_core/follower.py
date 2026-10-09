@@ -190,7 +190,7 @@ class UrFollowerCore:
             if state == FollowerState.WAIT:
                 return
             if state == FollowerState.STOP:
-                # STOP se publica antes del cierre: si el script ya se subió, falta su `stop`.
+                # STOP se publica antes del cierre: si ya se vio el programa del TP, falta su `stop`.
                 self._abort(SHUTDOWN_JOIN_S)
                 raise FollowerStartError(reason)
             if not alive:

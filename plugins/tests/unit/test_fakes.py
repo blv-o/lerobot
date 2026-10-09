@@ -1,6 +1,6 @@
 """Los dobles de test no se desvían de las interfaces reales que sustituyen.
 
-Si el cliente RTDE oficial o nuestros clientes de Dashboard/secundaria cambian, estos tests
+Si el cliente RTDE oficial o nuestro cliente de Dashboard cambian, estos tests
 fallan antes de que los tests del follower pasen contra una API que ya no existe.
 """
 
@@ -8,10 +8,9 @@ import inspect
 from typing import Any
 
 import pytest
-from fakes import FakeClock, FakeDashboard, FakeRTDE, FakeSecondary, packets
+from fakes import FakeClock, FakeDashboard, FakeRTDE, packets
 from rtde.rtde import RTDE, ConnectionState, RTDEException
 from ur_core.dashboard import DashboardClient
-from ur_core.secondary import send_script
 
 RTDE_METHODS = [
     "connect",
@@ -43,15 +42,6 @@ def test_fake_rtde_methods_match_official_client(method: str) -> None:
 @pytest.mark.parametrize("method", ["connect", "send", "close"])
 def test_fake_dashboard_methods_match_client(method: str) -> None:
     assert _params(getattr(FakeDashboard, method)) == _params(getattr(DashboardClient, method))
-
-
-def test_fake_secondary_matches_send_script_required_params() -> None:
-    required = [
-        name
-        for name, p in inspect.signature(send_script).parameters.items()
-        if p.default is inspect.Parameter.empty
-    ]
-    assert _params(FakeSecondary.__call__) == required
 
 
 def test_fake_rtde_advances_clock_and_raises_like_real_client_when_exhausted() -> None:

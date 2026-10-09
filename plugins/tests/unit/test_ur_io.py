@@ -1,4 +1,4 @@
-"""Clientes de Dashboard (29999) y de la interfaz secundaria (30002) contra un servidor TCP local."""
+"""Cliente de Dashboard (29999) contra un servidor TCP local."""
 
 import socket
 import threading
@@ -6,7 +6,6 @@ from collections.abc import Callable, Iterator
 
 import pytest
 from ur_core.dashboard import DashboardClient
-from ur_core.secondary import send_script
 
 
 @pytest.fixture
@@ -121,20 +120,3 @@ def test_dashboard_failed_welcome_closes_the_socket_and_next_connect_reconnects(
     dashboard.connect()
     assert dashboard.send("stop") == "Stopped"
     assert alive.sent == b"stop\n"
-
-
-def test_send_script_delivers_whole_program_with_final_newline(tcp_server) -> None:
-    received: list[bytes] = []
-    done = threading.Event()
-
-    def handler(conn: socket.socket) -> None:
-        data = b""
-        while chunk := conn.recv(4096):
-            data += chunk
-        received.append(data)
-        done.set()
-
-    port = tcp_server(handler)
-    send_script("127.0.0.1", 'def prog():\n  textmsg("á")\nend', port=port)
-    assert done.wait(timeout=5)
-    assert received == ['def prog():\n  textmsg("á")\nend\n'.encode()]

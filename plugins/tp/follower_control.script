@@ -1,0 +1,61 @@
+# ------------------------------------------------------------------
+#  follower_control.script  (URScript, programa del TP)
+#
+#  Programa que corre en el UR follower. Se carga en el TP como nodo
+#  Script de un programa y se le da a Play antes de cada sesion y tras
+#  cada parada. El PC lo alimenta por RTDE:
+#    input_double_register_0..5  <- consigna articular (rad)
+#    input_int_register_0        <- enable (0/1) y alimentacion del watchdog
+#    input_int_register_1        <- contador del PC (cambia en cada ciclo)
+#    output_int_register_0       -> heartbeat (contador)
+#
+#  Valores fijos que deben coincidir con el YAML (ur_config.yaml):
+#    servoj t = 0.008 s = 1 / servo.hz          (servo.hz: 125)
+#    watchdog 4 Hz      = 2000 / watchdog.stop_ms (watchdog.stop_ms: 500)
+#  lookahead 0.1 s y gain 300 solo viven aqui.
+#
+#  Ciclo de vida: mantener la pose hasta enable=1, seguir la consigna
+#  mientras enable=1 y, cuando vuelve a 0, stopj y fin. No se re-arma:
+#  tras una parada se vuelve a dar a Play.
+# ------------------------------------------------------------------
+
+textmsg("follower_control: esperando al PC")
+
+# Mantener la pose leida UNA vez: releerla en cada ciclo la dejaria derivar.
+q = get_actual_joint_positions()
+
+# Esperar a que el PC escriba. Se espera un CAMBIO del contador, no un
+# valor: los registros guardan el ultimo aunque el PC se desconecte.
+v0 = read_input_integer_register(1)
+while read_input_integer_register(1) == v0:
+	servoj(q, 0, 0, 0.008, 0.1, 300)
+end
+
+# Si el PC deja de escribir el registro enable (proceso o PC muerto),
+# el controlador para el programa por si solo. Frecuencia = 2 / stop_s:
+# el controlador para tras ~2 periodos sin dato (medido en URSim).
+rtde_set_watchdog("input_int_register_0", 4, "stop")
+textmsg("follower_control: PC conectado, watchdog activo")
+
+hb = 0
+while read_input_integer_register(0) == 0:
+	servoj(q, 0, 0, 0.008, 0.1, 300)
+	hb = hb + 1
+	write_output_integer_register(0, hb)
+end
+
+textmsg("follower_control: habilitado")
+
+while read_input_integer_register(0) == 1:
+	tq = [read_input_float_register(0), read_input_float_register(1), read_input_float_register(2), read_input_float_register(3), read_input_float_register(4), read_input_float_register(5)]
+	servoj(tq, 0, 0, 0.008, 0.1, 300)
+	hb = hb + 1
+	if hb > 1000000:
+		hb = 0
+	end
+	write_output_integer_register(0, hb)
+end
+
+# Deceleracion articular de la parada, en rad/s^2.
+stopj(2.0)
+textmsg("follower_control: parado")

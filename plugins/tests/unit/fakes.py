@@ -1,4 +1,4 @@
-"""Dobles de test del follower UR: RTDE, Dashboard, interfaz secundaria y reloj.
+"""Dobles de test del follower UR: RTDE, Dashboard y reloj.
 
 Los paquetes RTDE son dicts con los campos de la receta de salida; así la misma `FakeRTDE`
 sirve para paquetes escritos a mano y para trazas grabadas en URSim.
@@ -243,13 +243,3 @@ class FakeDashboard:
         if "close" in self._fail:
             raise OSError("FakeDashboard: fallo al cerrar")
         self.connected = False
-
-
-class FakeSecondary:
-    """Interfaz secundaria (30002): guarda los scripts subidos en lugar de enviarlos."""
-
-    def __init__(self) -> None:
-        self.scripts: list[tuple[str, str]] = []  # (host, texto)
-
-    def __call__(self, host: str, script_text: str) -> None:
-        self.scripts.append((host, script_text))

@@ -4,7 +4,7 @@ Corre en un proceso hijo con su propia conexión RTDE (las conexiones nunca cruz
 habla con el padre solo a través de `SharedState`. El ritmo lo marca el robot: un ciclo por
 paquete RTDE recibido, así que no hace falta temporizador propio.
 
-Estados: ARMING (subiendo el URScript) → WAIT (quieto, sin consignas) → RUN ⇄ HOLD → STOP.
+Estados: ARMING (esperando al programa del TP) → WAIT (quieto, sin consignas) → RUN ⇄ HOLD → STOP.
 Toda salida, normal o por excepción, publica STOP con su motivo en cuanto ocurre y pasa por el
 mismo cierre: enable=0 y `stop` por el Dashboard. Es una segunda capa: la seguridad real es la de PolyScope.
 """
@@ -27,14 +27,12 @@ from rtde.rtde import RTDEException
 from ur_core.clock import now_ns
 from ur_core.config import N_JOINTS, FollowerConfig
 from ur_core.dashboard import DashboardClient
-from ur_core.follower_script import render_follower_script
 from ur_core.motion import interpolate, limit_step
-from ur_core.secondary import send_script
 
 log = logging.getLogger("ur_core.follower")
 
 RTDE_PORT = 30004
-# Tiempo interno de arranque, no un ajuste del operador: subir el script y que empiece a latir.
+# Tiempo interno de arranque, no un ajuste del operador: que el programa del TP empiece a latir.
 ARM_TIMEOUT_S = 6.0
 PERIOD_WINDOW_S = 10.0  # ventana de p50/p99 del periodo
 REASON_BYTES = 256
@@ -295,7 +293,6 @@ class StreamingLoop:
         shared: SharedState,
         rtde: RtdeConnection,
         dashboard: Dashboard,
-        send_script: Callable[[str, str], None],
         clock: Callable[[], int] = now_ns,
         parent_alive: Callable[[], bool] = lambda: True,
     ) -> None:
@@ -304,7 +301,6 @@ class StreamingLoop:
         self._shared = shared
         self._rtde = rtde
         self._dashboard = dashboard
-        self._send_script = send_script
         self._clock = clock
         self._parent_alive = parent_alive
         self._max_step_rad = follower.servo.max_joint_speed_rad_s / follower.servo.hz
@@ -315,7 +311,7 @@ class StreamingLoop:
         self._reason = ""
         self._command: Any = None
         self._counter = 0
-        self._script_sent = False
+        self._program_seen = False
         self._armed_q_rad: list[float] = []
         self._last_cmd_rad: list[float] = []
         self._last_target_read: tuple[int, int, list[float]] = (0, 0, [])
@@ -377,20 +373,21 @@ class StreamingLoop:
         self._check_ready(pkt)
         self._armed_q_rad = list(pkt.actual_q)
         self._shared.try_write_measured(self._armed_q_rad)
-        # Consigna = pose actual y deshabilitado ANTES de subir el script: nunca hay salto.
+        # Consigna = pose actual y deshabilitado desde la primera escritura: nunca hay salto.
         self._write(self._armed_q_rad, enable=0)
-        self._upload_script()
 
         hb0 = pkt.output_int_register_0
         deadline_ns = self._clock() + round(ARM_TIMEOUT_S * 1e9)
         while pkt.output_int_register_0 == hb0:
             if self._clock() > deadline_ns:
                 raise FollowerStartError(
-                    f"el programa del follower no arrancó: heartbeat sin cambios en {ARM_TIMEOUT_S} s"
+                    "el programa del follower no está en marcha: dale a Play en el TP "
+                    f"(heartbeat sin cambios en {ARM_TIMEOUT_S} s)"
                 )
             pkt = self._receive()
             self._shared.try_write_measured(pkt.actual_q)
-            self._write(self._armed_q_rad, enable=0)  # alimenta el watchdog
+            self._write(self._armed_q_rad, enable=0)  # cambia el contador y alimenta el watchdog
+        self._program_seen = True  # a partir de aquí el programa que corre es el nuestro
         self._hb = pkt.output_int_register_0
         self._hb_change_ns = self._clock()
         # Las escrituras `try_*` del armado pueden haber coincidido todas con el padre leyendo el
@@ -431,16 +428,6 @@ class StreamingLoop:
             raise FollowerStartError(busy)
         return command
 
-    def _upload_script(self) -> None:
-        script = render_follower_script(self._cfg.servo, self._cfg.watchdog)
-        self._script_sent = True  # a partir de aquí puede haber un programa nuestro corriendo
-        try:
-            self._send_script(self._cfg.ip, script)
-        except OSError as exc:
-            raise FollowerStartError(
-                f"no se pudo subir el URScript por la interfaz secundaria: {exc}"
-            ) from exc
-
     def _check_ready(self, pkt: Any) -> None:
         if pkt.robot_mode != ROBOT_MODE_RUNNING:
             raise FollowerStartError(
@@ -462,7 +449,8 @@ class StreamingLoop:
             except Exception:
                 log.exception("follower: no se pudo escribir enable=0 (el watchdog del robot lo parará)")
                 self._reason += " (enable=0 no se pudo escribir; lo para el watchdog del robot)"
-        if self._script_sent:
+        # Sin heartbeat no se vio nuestro programa: no se para un programa ajeno.
+        if self._program_seen:
             try:
                 self._backup_stop()
             except Exception:
@@ -640,7 +628,6 @@ def streaming_main(follower: FollowerConfig, start_tolerance_rad: float, shared:
         shared,
         rtde=rtde.RTDE(follower.ip, RTDE_PORT),
         dashboard=DashboardClient(follower.ip),
-        send_script=send_script,
         parent_alive=parent.is_alive if parent is not None else lambda: True,
     )
     loop.serve()
