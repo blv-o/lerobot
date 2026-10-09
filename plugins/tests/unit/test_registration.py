@@ -31,3 +31,18 @@ def test_config_types_resolve_to_plugin_classes() -> None:
     register_third_party_plugins()
     assert RobotConfig.get_choice_class("ur_follower").__name__ == "UrFollowerConfig"
     assert TeleoperatorConfig.get_choice_class("ur_leader").__name__ == "UrLeaderConfig"
+
+
+def test_lerobot_factories_build_the_plugin_adapters(tmp_path: Path) -> None:
+    """La Config del plugin lleva al adaptador del plugin, nunca a la dataclass homónima de ur_core."""
+    from lerobot_robot_ur_follower import UrFollower, UrFollowerConfig
+    from lerobot_teleoperator_ur_leader import UrLeader, UrLeaderConfig
+
+    from lerobot.robots.utils import make_robot_from_config
+    from lerobot.teleoperators.utils import make_teleoperator_from_config
+
+    template = Path(__file__).parents[2] / "configs" / "ur_config.yaml"
+    robot = make_robot_from_config(UrFollowerConfig(config_path=template, calibration_dir=tmp_path))
+    teleop = make_teleoperator_from_config(UrLeaderConfig(config_path=template, calibration_dir=tmp_path))
+    assert type(robot) is UrFollower
+    assert type(teleop) is UrLeader
