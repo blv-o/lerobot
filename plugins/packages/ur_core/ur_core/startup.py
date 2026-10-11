@@ -8,10 +8,15 @@ import math
 from collections.abc import Callable, Sequence
 from typing import Any
 
+import rtde.rtde as rtde
 from rtde.rtde import RTDEException
 
 from ur_core.config import JOINT_NAMES
-from ur_core.streaming import RtdeConnection
+from ur_core.streaming import RTDE_PORT, RtdeConnection
+
+
+def rtde_connection(ip: str) -> RtdeConnection:
+    return rtde.RTDE(ip, RTDE_PORT)
 
 
 def confirm_and_check(

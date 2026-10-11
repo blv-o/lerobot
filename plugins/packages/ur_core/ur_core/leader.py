@@ -14,8 +14,8 @@ from rtde.rtde import RTDEException
 
 from ur_core.clock import now_ns
 from ur_core.config import UR_TYPES, ConfigError, TeleopConfig, UrLeaderConfig
-from ur_core.startup import check_pose, receive_packet, start_output, start_pose_text
-from ur_core.streaming import RTDE_PORT, RtdeConnection
+from ur_core.startup import check_pose, receive_packet, rtde_connection, start_output, start_pose_text
+from ur_core.streaming import RtdeConnection
 
 log = logging.getLogger("ur_core.leader")
 
@@ -30,13 +30,9 @@ class LeaderReadError(RuntimeError):
     """El leader no da datos nuevos (conexión perdida o `timestamp` parado); el motivo lo dice."""
 
 
-def _rtde_connection(ip: str) -> RtdeConnection:
-    return rtde.RTDE(ip, RTDE_PORT)
-
-
 class UrLeaderCore:
     def __init__(
-        self, config: TeleopConfig, rtde_factory: Callable[[str], RtdeConnection] = _rtde_connection
+        self, config: TeleopConfig, rtde_factory: Callable[[str], RtdeConnection] = rtde_connection
     ) -> None:
         if not isinstance(config.leader, UrLeaderConfig):
             raise ConfigError(

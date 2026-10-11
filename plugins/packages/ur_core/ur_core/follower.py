@@ -19,11 +19,10 @@ import rtde.rtde as rtde
 from ur_core.clock import now_ns
 from ur_core.config import N_JOINTS, FollowerConfig, TeleopConfig
 from ur_core.dashboard import DASHBOARD_TIMEOUT_S
-from ur_core.startup import check_pose, start_pose_text
+from ur_core.startup import check_pose, rtde_connection, start_pose_text
 from ur_core.streaming import (
     ARM_TIMEOUT_S,
     LOCK_TIMEOUT_S,
-    RTDE_PORT,
     FollowerStartError,
     FollowerState,
     FollowerStoppedError,
@@ -78,16 +77,12 @@ def spawn_worker(follower: FollowerConfig, start_tolerance_rad: float, shared: S
     return process
 
 
-def _rtde_connection(ip: str) -> RtdeConnection:
-    return rtde.RTDE(ip, RTDE_PORT)
-
-
 class UrFollowerCore:
     def __init__(
         self,
         config: TeleopConfig,
         launch: Launcher = spawn_worker,
-        rtde_factory: Callable[[str], RtdeConnection] = _rtde_connection,
+        rtde_factory: Callable[[str], RtdeConnection] = rtde_connection,
     ) -> None:
         self._config = config
         self._launch = launch
