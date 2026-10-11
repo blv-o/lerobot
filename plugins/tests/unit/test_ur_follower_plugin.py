@@ -151,11 +151,11 @@ def test_connect_asks_again_while_checks_fail(robot: UrFollower, calls: list[str
     assert calls == ["core.check_start", "core.check_start", "core.connect", "front.connect"]
 
 
-def test_connect_answered_no_raises_keyboard_interrupt_without_arming(
+def test_connect_answered_no_exits_without_arming(
     robot: UrFollower, calls: list[str], caplog: pytest.LogCaptureFixture
 ) -> None:
     robot.ask = answers("no")
-    with caplog.at_level(logging.INFO), pytest.raises(KeyboardInterrupt):
+    with caplog.at_level(logging.INFO), pytest.raises(SystemExit, match="arranque cancelado por el operador"):
         robot.connect(calibrate=False)  # así lo llama `lerobot-calibrate`
     assert "arranque cancelado por el operador" in caplog.text
     assert calls == []

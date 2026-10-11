@@ -90,11 +90,11 @@ def test_connect_asks_checks_and_connects(leader: UrLeader) -> None:
     assert leader.is_connected
 
 
-def test_connect_answered_no_raises_keyboard_interrupt_without_connecting(
+def test_connect_answered_no_exits_without_connecting(
     leader: UrLeader, caplog: pytest.LogCaptureFixture
 ) -> None:
     leader.ask = answers("no")
-    with caplog.at_level(logging.INFO), pytest.raises(KeyboardInterrupt):
+    with caplog.at_level(logging.INFO), pytest.raises(SystemExit, match="arranque cancelado por el operador"):
         leader.connect(calibrate=False)
     assert "arranque cancelado por el operador" in caplog.text
     assert leader.core.calls == []
