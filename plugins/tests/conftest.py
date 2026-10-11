@@ -5,6 +5,8 @@ archivo que lo necesita lo pide con `pytest.mark.usefixtures`. Las funciones se 
 `from conftest import ...`.
 """
 
+import json
+import os
 import threading
 import time
 from pathlib import Path
@@ -93,6 +95,46 @@ def unlock_protective_stop() -> None:
         PROTECTIVE_STOP_RELEASE_TIMEOUT_S,
         "Safetystatus: NORMAL",
     )
+
+
+TRACES = PLUGINS / "tests" / "traces"
+
+
+class TraceRecorder:
+    """Graba el stream RTDE de un robot con una conexión de solo lectura propia.
+
+    Con `UR_RECORD_TRACES=1`, `save()` escribe la traza en plugins/tests/traces/ para los tests
+    de replay; sin esa variable no se escribe nada.
+    """
+
+    def __init__(self, ip: str, names: list[str], types: list[str], frequency_hz: float) -> None:
+        self.packets: list[dict[str, Any]] = []
+        self._names = names
+        self._stop = threading.Event()
+        self._con = rtde.RTDE(ip, RTDE_PORT)
+        self._con.connect()
+        assert self._con.send_output_setup(names, types, frequency=frequency_hz)
+        assert self._con.send_start()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            pkt = self._con.receive()
+            if pkt is not None:
+                self.packets.append({name: _plain(getattr(pkt, name)) for name in self._names})
+
+    def save(self, name: str) -> None:
+        self._stop.set()
+        self._thread.join(timeout=5)
+        self._con.disconnect()
+        if os.environ.get("UR_RECORD_TRACES") == "1":
+            TRACES.mkdir(exist_ok=True)
+            (TRACES / f"{name}.json").write_text(json.dumps(self.packets), encoding="utf-8")
+
+
+def _plain(value: Any) -> Any:
+    return list(value) if isinstance(value, list | tuple) else value
 
 
 # Programa del URSim follower (carpeta plugins/ursim/programs/follower del checkout principal, no

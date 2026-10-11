@@ -1,17 +1,21 @@
-"""Leader contra el URSim de plugins/ursim (127.0.0.3): solo se lee, sin preparar nada en él."""
+"""Leader contra el URSim de plugins/ursim (127.0.0.3): solo se lee, sin preparar nada en él.
+
+Con `UR_RECORD_TRACES=1` además se graba en plugins/tests/traces/ la traza RTDE del leader
+quieto que usa el test de replay del timeout (sin esa variable no se escribe nada).
+"""
 
 import time
-from pathlib import Path
 
 import pytest
-from ur_core import UrLeaderCore, load_config
-
-CONFIG = load_config(Path(__file__).parents[2] / "configs" / "ur_config.yaml")
+from conftest import CONFIG, TraceRecorder
+from ur_core import UrLeaderCore
+from ur_core.leader import OUTPUT_NAMES, OUTPUT_TYPES
 
 pytestmark = pytest.mark.ursim
 
 
 def test_leader_reads_joints_while_the_controller_timestamp_advances() -> None:
+    recorder = TraceRecorder(CONFIG.leader.ip, OUTPUT_NAMES, OUTPUT_TYPES, CONFIG.leader.rtde_hz)
     leader = UrLeaderCore(CONFIG)
     leader.connect()
     try:
@@ -19,6 +23,7 @@ def test_leader_reads_joints_while_the_controller_timestamp_advances() -> None:
         q_rad = leader.read_joints()
     finally:
         leader.disconnect()
+        recorder.save("leader_still")
     assert len(q_rad) == 6
 
 

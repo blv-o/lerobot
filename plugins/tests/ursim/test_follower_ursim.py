@@ -10,16 +10,13 @@ Con `UR_RECORD_TRACES=1` además se graban en plugins/tests/traces/ las trazas R
 follower que usan los tests de replay (sin esa variable no se escribe nada).
 """
 
-import json
 import math
 import multiprocessing.process
 import os
 import subprocess
 import sys
-import threading
 import time
 from collections.abc import Iterator
-from typing import Any
 
 import pytest
 import rtde.rtde as rtde
@@ -27,7 +24,7 @@ from conftest import (
     CONFIG,
     CONFIG_PATH,
     FOLLOWER_IP,
-    PLUGINS,
+    TraceRecorder,
     dashboard,
     program_running,
     protective_stop_appears,
@@ -40,7 +37,6 @@ from ur_core.config import FollowerConfig
 from ur_core.follower import Worker, spawn_worker
 from ur_core.streaming import OUTPUT_NAMES, OUTPUT_TYPES, RTDE_PORT, SharedState
 
-TRACES = PLUGINS / "tests" / "traces"
 SINE_AMPLITUDE_RAD = 0.2
 SINE_FREQUENCY_HZ = 0.2
 SEND_HZ = 30
@@ -53,36 +49,8 @@ MAX_SEARCHED_DELAY_MS = 300  # por encima del límite, para que un retraso exces
 pytestmark = [pytest.mark.ursim, pytest.mark.usefixtures("follower_program_playing")]
 
 
-class TraceRecorder:
-    """Graba el stream RTDE del follower con una conexión de solo lectura propia."""
-
-    def __init__(self) -> None:
-        self.packets: list[dict[str, Any]] = []
-        self._stop = threading.Event()
-        self._con = rtde.RTDE(FOLLOWER_IP, RTDE_PORT)
-        self._con.connect()
-        assert self._con.send_output_setup(OUTPUT_NAMES, OUTPUT_TYPES, frequency=CONFIG.follower.servo.hz)
-        assert self._con.send_start()
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-
-    def _run(self) -> None:
-        while not self._stop.is_set():
-            pkt = self._con.receive()
-            if pkt is not None:
-                self.packets.append({name: _plain(getattr(pkt, name)) for name in OUTPUT_NAMES})
-
-    def save(self, name: str) -> None:
-        self._stop.set()
-        self._thread.join(timeout=5)
-        self._con.disconnect()
-        if os.environ.get("UR_RECORD_TRACES") == "1":
-            TRACES.mkdir(exist_ok=True)
-            (TRACES / f"{name}.json").write_text(json.dumps(self.packets), encoding="utf-8")
-
-
-def _plain(value: Any) -> Any:
-    return list(value) if isinstance(value, list | tuple) else value
+def follower_recorder() -> TraceRecorder:
+    return TraceRecorder(FOLLOWER_IP, OUTPUT_NAMES, OUTPUT_TYPES, CONFIG.follower.servo.hz)
 
 
 @pytest.fixture
@@ -143,7 +111,7 @@ def test_sine_is_tracked_with_small_error_and_no_protective_stop(core: UrFollowe
     sobre todo el retraso (lookahead del servoj + interpolación), no si el robot sigue bien.
     Forma: RMS < 0,02 rad con el retraso constante que mejor encaja. Retraso: < 200 ms.
     """
-    recorder = TraceRecorder()
+    recorder = follower_recorder()
     core.connect()
     q0 = core.get_joints()
     period_ns = round(1e9 / SEND_HZ)
@@ -189,7 +157,7 @@ def test_disconnect_stops_the_program_on_the_robot(core: UrFollowerCore) -> None
 
 def test_program_stopped_from_pendant_stops_the_follower(core: UrFollowerCore) -> None:
     """El `stop` del Dashboard desde otra conexión hace lo mismo que el botón de parar del TP."""
-    recorder = TraceRecorder()
+    recorder = follower_recorder()
     core.connect()
     q0 = core.get_joints()
     core.send_joints(q0)
