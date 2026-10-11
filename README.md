@@ -39,6 +39,10 @@ python -m pip install -e plugins/packages/ur_core -e plugins/packages/lerobot_ro
 
 Comprobación: `python -c "import lerobot; print(lerobot.__file__)"` debe apuntar a esta carpeta, no a `site-packages`.
 
+## Uso
+
+Guía de teleoperación (preparar los robots, lanzar, parar): [`plugins/README.md`](plugins/README.md).
+
 ## Dependencias
 
 - `pyproject.toml` (raíz): el de LeRobot, sin cambios.
