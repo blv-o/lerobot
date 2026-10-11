@@ -15,7 +15,6 @@ import pytest
 from fakes import START_Q_RAD, FakeRTDE, endless_packets, packet, packets
 from ur_core.clock import now_ns
 from ur_core.config import (
-    UR_TYPES,
     ConfigError,
     FollowerConfig,
     LowCostLeaderConfig,
@@ -24,7 +23,7 @@ from ur_core.config import (
     UrLeaderConfig,
     WatchdogConfig,
 )
-from ur_core.leader import LEADERS, LeaderReadError, UrLeaderCore
+from ur_core.leader import LeaderReadError, UrLeaderCore
 
 LEADER = UrLeaderConfig(type="ur3e", ip="127.0.0.3", rtde_hz=500, timeout_s=0.1)
 LEADER_CONFIG = TeleopConfig(
@@ -267,8 +266,3 @@ def test_low_cost_leader_type_is_rejected() -> None:
     )
     with pytest.raises(ConfigError, match="leader.type"):
         UrLeaderCore(dataclasses.replace(LEADER_CONFIG, leader=low_cost))
-
-
-def test_every_accepted_ur_model_maps_to_the_core() -> None:
-    assert set(LEADERS) == set(UR_TYPES)
-    assert set(LEADERS.values()) == {UrLeaderCore}

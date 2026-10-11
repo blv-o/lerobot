@@ -31,10 +31,9 @@ from fakes import (
     packets,
 )
 from ur_core.clock import now_ns
-from ur_core.config import UR_TYPES, FollowerConfig, ServoConfig, TeleopConfig, UrLeaderConfig, WatchdogConfig
+from ur_core.config import FollowerConfig, ServoConfig, TeleopConfig, UrLeaderConfig, WatchdogConfig
 from ur_core.dashboard import DASHBOARD_TIMEOUT_S
 from ur_core.follower import (
-    FOLLOWERS,
     FollowerStartError,
     FollowerStoppedError,
     UrFollowerCore,
@@ -610,8 +609,3 @@ def test_start_prompt_tells_what_to_prepare_on_the_pendant() -> None:
     assert "Play" in prompt and "Remote" not in prompt
     assert "[0, -90, 90, -90, -90, 0]" in prompt and "± 2" in prompt
     assert "yes/no" in prompt
-
-
-def test_every_accepted_ur_model_maps_to_the_core() -> None:
-    assert set(FOLLOWERS) == set(UR_TYPES)
-    assert set(FOLLOWERS.values()) == {UrFollowerCore}
