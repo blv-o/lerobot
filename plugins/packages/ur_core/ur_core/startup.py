@@ -44,10 +44,14 @@ def confirm_and_check(
 
 
 def confirm_start(prompt: str, checks: Callable[[], list[str]], ask: Callable[[str], str] = input) -> None:
-    """`confirm_and_check` para los adaptadores: si el operador dice `no`, LeRobot termina sin conectar."""
+    """`confirm_and_check` para los adaptadores: si el operador dice `no`, LeRobot termina sin conectar.
+
+    `SystemExit` y no `KeyboardInterrupt`: `lerobot-teleoperate` conecta fuera de su `try` y
+    `lerobot-record` no la captura, así que salía una traza larga por una respuesta normal.
+    """
     if not confirm_and_check(prompt, checks, ask=ask):
         log.warning("arranque cancelado por el operador")
-        raise KeyboardInterrupt  # como Ctrl+C: LeRobot termina sin entrar en su bucle
+        raise SystemExit("arranque cancelado por el operador")
 
 
 def start_pose_text(start_pose_rad: Sequence[float], tolerance_rad: float) -> str:
