@@ -609,3 +609,4 @@ def test_start_prompt_tells_what_to_prepare_on_the_pendant() -> None:
     assert "Play" in prompt and "Remote" not in prompt
     assert "[0, -90, 90, -90, -90, 0]" in prompt and "± 2" in prompt
     assert "yes/no" in prompt
+    assert prompt.endswith("\n")  # con `| Tee-Object`, sin él la pregunta no se ve

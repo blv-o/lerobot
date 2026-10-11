@@ -258,6 +258,7 @@ def test_start_prompt_tells_what_to_prepare_on_the_pendant() -> None:
     assert "freedrive" in prompt and "127.0.0.3" in prompt
     assert "[0, -90, 90, -90, -90, 0]" in prompt and "± 2" in prompt
     assert "yes/no" in prompt
+    assert prompt.endswith("\n")  # con `| Tee-Object`, sin él la pregunta no se ve
 
 
 def test_low_cost_leader_type_is_rejected() -> None:
