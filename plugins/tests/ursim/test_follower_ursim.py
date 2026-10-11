@@ -1,6 +1,6 @@
 """Follower contra el URSim de plugins/ursim (127.0.0.2), preparado a mano desde PolyScope.
 
-Antes de lanzarlos (ver plugins/ursim/README.md): robot encendido con frenos sueltos, en modo
+Antes de lanzarlos (ver plugins/README.md): robot encendido con frenos sueltos, en modo
 Remote, con el programa del follower en su carpeta de programas y en la posición inicial de
 plugins/configs/ur_config.yaml. El modo Remote solo lo necesitan estos tests: antes de cada uno,
 `follower_program_playing` pone el programa en marcha por el Dashboard, como haría el operador
