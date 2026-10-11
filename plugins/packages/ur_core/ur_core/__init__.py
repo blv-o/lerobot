@@ -8,7 +8,7 @@ from ur_core.config import JOINT_NAMES, ConfigError, TeleopConfig, load_config
 from ur_core.follower import FollowerStatus, FollowerStoppedError, UrFollowerCore
 from ur_core.leader import LeaderReadError, UrLeaderCore
 from ur_core.motion import interpolate, limit_step
-from ur_core.startup import confirm_and_check, pose_errors
+from ur_core.startup import confirm_and_check, confirm_start, pose_errors
 from ur_core.streaming import FollowerStartError, FollowerState
 
 __all__ = [
@@ -23,6 +23,7 @@ __all__ = [
     "UrFollowerCore",
     "UrLeaderCore",
     "confirm_and_check",
+    "confirm_start",
     "interpolate",
     "limit_step",
     "load_config",

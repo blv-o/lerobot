@@ -4,6 +4,7 @@ El código no mueve nunca el robot a la posición inicial (eso se hace desde el 
 solo comprueba que está allí, para que la primera consigna no provoque un salto.
 """
 
+import logging
 import math
 from collections.abc import Callable, Sequence
 from typing import Any
@@ -13,6 +14,8 @@ from rtde.rtde import RTDEException
 
 from ur_core.config import JOINT_NAMES
 from ur_core.streaming import RTDE_PORT, RtdeConnection
+
+log = logging.getLogger("ur_core.startup")
 
 
 def rtde_connection(ip: str) -> RtdeConnection:
@@ -38,6 +41,13 @@ def confirm_and_check(
             return True
         for failure in failures:
             print(failure)
+
+
+def confirm_start(prompt: str, checks: Callable[[], list[str]], ask: Callable[[str], str] = input) -> None:
+    """`confirm_and_check` para los adaptadores: si el operador dice `no`, LeRobot termina sin conectar."""
+    if not confirm_and_check(prompt, checks, ask=ask):
+        log.warning("arranque cancelado por el operador")
+        raise KeyboardInterrupt  # como Ctrl+C: LeRobot termina sin entrar en su bucle
 
 
 def start_pose_text(start_pose_rad: Sequence[float], tolerance_rad: float) -> str:

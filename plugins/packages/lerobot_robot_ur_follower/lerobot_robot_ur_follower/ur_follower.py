@@ -2,7 +2,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from ur_core import JOINT_NAMES, UrFollowerCore, confirm_and_check, load_config
+from ur_core import JOINT_NAMES, UrFollowerCore, confirm_start, load_config
 
 from lerobot.cameras import make_cameras_from_configs
 from lerobot.robots import Robot
@@ -45,9 +45,7 @@ class UrFollower(Robot):
         return self.core.is_connected
 
     def connect(self, calibrate: bool = True) -> None:
-        if not confirm_and_check(self.core.start_prompt(), self.core.check_start, ask=self.ask):
-            log.warning("arranque cancelado por el operador")
-            raise KeyboardInterrupt  # como Ctrl+C: LeRobot termina sin entrar en su bucle
+        confirm_start(self.core.start_prompt(), self.core.check_start, ask=self.ask)
         self.core.connect()
         try:
             for cam in self.cameras.values():

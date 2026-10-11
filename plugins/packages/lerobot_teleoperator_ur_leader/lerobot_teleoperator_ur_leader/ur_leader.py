@@ -1,14 +1,11 @@
-import logging
 from collections.abc import Callable
 from typing import Any
 
-from ur_core import JOINT_NAMES, UrLeaderCore, confirm_and_check, load_config
+from ur_core import JOINT_NAMES, UrLeaderCore, confirm_start, load_config
 
 from lerobot.teleoperators import Teleoperator
 
 from .config_ur_leader import UrLeaderConfig
-
-log = logging.getLogger(__name__)
 
 
 class UrLeader(Teleoperator):
@@ -40,9 +37,7 @@ class UrLeader(Teleoperator):
         return self.core.is_connected
 
     def connect(self, calibrate: bool = True) -> None:
-        if not confirm_and_check(self.core.start_prompt(), self.core.check_start, ask=self.ask):
-            log.warning("arranque cancelado por el operador")
-            raise KeyboardInterrupt  # como Ctrl+C: LeRobot termina sin entrar en su bucle
+        confirm_start(self.core.start_prompt(), self.core.check_start, ask=self.ask)
         self.core.connect()
 
     @property
