@@ -5,27 +5,20 @@ son la única capa que habla con él, así un cambio interno de LeRobot no llega
 """
 
 from ur_core.config import JOINT_NAMES, ConfigError, TeleopConfig, load_config
-from ur_core.follower import FollowerStatus, FollowerStoppedError, UrFollowerCore
+from ur_core.follower import FollowerStoppedError, UrFollowerCore
 from ur_core.leader import LeaderReadError, UrLeaderCore
-from ur_core.motion import interpolate, limit_step
-from ur_core.startup import confirm_and_check, confirm_start, pose_errors
-from ur_core.streaming import FollowerStartError, FollowerState
+from ur_core.startup import confirm_start
+from ur_core.streaming import FollowerState
 
 __all__ = [
     "JOINT_NAMES",
     "ConfigError",
-    "FollowerStartError",
     "FollowerState",
-    "FollowerStatus",
     "FollowerStoppedError",
     "LeaderReadError",
     "TeleopConfig",
     "UrFollowerCore",
     "UrLeaderCore",
-    "confirm_and_check",
     "confirm_start",
-    "interpolate",
-    "limit_step",
     "load_config",
-    "pose_errors",
 ]
