@@ -1,22 +1,25 @@
 # LeRobot para robots UR
 
-Fork de [huggingface/lerobot](https://github.com/huggingface/lerobot) adaptado a brazos Universal Robots (UR3e).
+Fork de [huggingface/lerobot](https://github.com/huggingface/lerobot) adaptado a brazos Universal Robots.
 
-Instala la librería `lerobot` completa (`src/`, sin cambios salvo lo indicado abajo) más unos plugins que añaden un robot follower y un teleoperador leader UR controlados por RTDE. Toda la documentación, ejemplos, Dockerfiles y CI del original se han retirado de este repositorio: para eso, consulta [el repositorio original](https://github.com/huggingface/lerobot) y [su documentación](https://huggingface.co/docs/lerobot).
+Permite teleoperar un UR (follower) moviendo a mano otro UR en freedrive (leader), y usar los comandos de LeRobot (`lerobot-teleoperate`, `lerobot-record`…). La comunicación con los robots es por RTDE.
 
-## Qué añade respecto al original
+La librería `lerobot` (`src/`) es la del original; la documentación, ejemplos y CI se han retirado: consulta [el repositorio original](https://github.com/huggingface/lerobot) y [su documentación](https://huggingface.co/docs/lerobot).
+
+## Qué añade
 
 | Dónde | Qué |
 |---|---|
-| `plugins/packages/lerobot_robot_ur_follower/` | Robot `ur_follower`: UR que sigue las consignas por RTDE (`servoj` en un programa del Teach Pendant que lee registros RTDE). En desarrollo: hoy solo registra el tipo en LeRobot; la lógica del follower ya está en `ur_core` |
-| `plugins/packages/lerobot_teleoperator_ur_leader/` | Teleoperador `ur_leader`: UR en freedrive (se mueve a mano) del que solo se lee la posición articular. En desarrollo: hoy solo registra el tipo en LeRobot |
-| `plugins/packages/ur_core/` | Lógica de ambos, con el cliente RTDE oficial de UR: la del follower (`UrFollowerCore`) ya está implementada; la del leader, todavía no |
-| `plugins/tp/follower_control.script` | Programa del follower: se carga en el TP como nodo Script y se le da a Play antes de cada sesión y tras cada parada (el PC no lo sube ni necesita el modo Remote). Sus valores fijos deben coincidir con `servo.hz` y `watchdog.stop_ms` del YAML; `gain` y `lookahead` solo viven ahí |
-| `plugins/ursim/` | Dos URSim 5.25.2 (fijados por digest) en Docker para probar sin hardware |
-| `plugins/tests/` | Suite de los plugins |
-| `src/lerobot/common/train_utils.py` | `lerobot-train` no se cae en Windows al crear `checkpoints/last` (usa un *junction* si no se puede crear el symlink) |
+| `plugins/packages/lerobot_robot_ur_follower/` | Robot `ur_follower`: el UR que sigue las consignas |
+| `plugins/packages/lerobot_teleoperator_ur_leader/` | Teleoperador `ur_leader`: el UR en freedrive del que se lee la posición articular |
+| `plugins/packages/ur_core/` | Lógica común de ambos, con el cliente RTDE oficial de UR |
+| `plugins/tp/follower_control.script` | Programa del follower para el Teach Pendant: se carga como nodo Script y se le da a Play antes de cada sesión |
+| `plugins/configs/ur_config.yaml` | Configuración de ejemplo (IP de cada robot, frecuencia, límites) |
+| `plugins/ursim/` | Dos simuladores URSim en Docker para probar sin hardware |
+| `plugins/tests/` | Tests de los plugins |
+| `src/lerobot/common/train_utils.py` | Arreglo para que `lerobot-train` no falle en Windows al crear `checkpoints/last` |
 
-Para ver exactamente qué difiere del original en código: `git diff main...lerobot/ur-plugin --stat -- src plugins tests` (`main` es una copia sin cambios del upstream).
+Diferencias exactas con el original: `git diff main...lerobot/ur-plugin --stat -- src plugins tests`.
 
 ## Instalación
 
@@ -34,30 +37,27 @@ python -m pip install -e ".[core_scripts,training,feetech]"
 python -m pip install -e plugins/packages/ur_core -e plugins/packages/lerobot_robot_ur_follower -e plugins/packages/lerobot_teleoperator_ur_leader
 ```
 
-Comprobación: `python -c "import lerobot; print(lerobot.__file__)"` debe apuntar a esta carpeta (`.../lerobot/src/lerobot/`), no a `site-packages`.
+Comprobación: `python -c "import lerobot; print(lerobot.__file__)"` debe apuntar a esta carpeta, no a `site-packages`.
 
 ## Dependencias
 
-- `pyproject.toml` (raíz): el de LeRobot, sin cambios. Las dependencias obligatorias las necesita `src/`; los *extras* (`feetech`, `smolvla`, `aloha`…) solo se instalan si se piden entre corchetes, así que los que no se usan no ocupan nada.
-- `plugins/packages/*/pyproject.toml`: las dependencias propias de este fork, junto al código que las usa. Por ejemplo, el cliente RTDE oficial de UR (fijado por commit) y `pyyaml` están en `plugins/packages/ur_core/pyproject.toml`.
-
-Una dependencia nueva se declara en el `pyproject.toml` del plugin que la necesita, no en el de la raíz.
+- `pyproject.toml` (raíz): el de LeRobot, sin cambios.
+- `plugins/packages/*/pyproject.toml`: las dependencias propias (p. ej. el cliente RTDE de UR y `pyyaml`, en `ur_core`).
 
 ## Tests
 
 ```bash
-python -m pip install -e ".[test]"   # una vez: pytest, pytest-timeout… (extra `test` del pyproject.toml raíz)
+python -m pip install -e ".[test]"   # una vez
 pytest plugins/tests                 # sin URSim ni hardware
-pytest plugins/tests -m ursim        # con los URSim de plugins/ursim levantados (ver su README)
-pytest plugins/tests -m timing       # temporización del follower contra URSim (necesita los URSim levantados)
+pytest plugins/tests -m ursim        # con los URSim levantados (ver plugins/ursim/README.md)
+pytest plugins/tests -m timing       # temporización del follower contra URSim
 pytest tests                         # suite original de LeRobot
 ```
 
 ## Ramas
 
-- `main`: copia del upstream, solo como referencia para comparar y traer actualizaciones.
-- `fix/windows-last-checkpoint`: arreglo de Windows + retirada de lo que no aplica a este proyecto (ya incluida en `lerobot/ur-plugin`).
-- `lerobot/ur-plugin` (rama por defecto): fork completo con los plugins UR. Desde aquí se puede crear un *worktree* con su propia rama para cada bloque de trabajo (del tamaño que convenga según lo que se quiera paralelizar); la rama se fusiona en `lerobot/ur-plugin` al validarla.
+- `lerobot/ur-plugin` (por defecto): el fork con los plugins UR.
+- `main`: copia del original, para comparar y traer actualizaciones.
 
 ## Licencia
 
