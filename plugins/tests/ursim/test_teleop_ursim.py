@@ -9,7 +9,6 @@ Solo para este test, el URSim leader se mueve con un URScript subido por 30002 (
 lo mueve el operador en freedrive). El código de los plugins nunca escribe al leader.
 """
 
-import importlib.util
 import math
 import socket
 import threading
@@ -21,23 +20,15 @@ from pathlib import Path
 import numpy as np
 import pytest
 import rtde.rtde as rtde
+from conftest import CONFIG, CONFIG_PATH, dashboard, encode_video, wait_until
 from lerobot_robot_ur_follower import UrFollower, UrFollowerConfig
 from lerobot_teleoperator_ur_leader import UrLeader, UrLeaderConfig
-from test_follower_ursim import (
-    CONFIG,
-    CONFIG_PATH,
-    DELAY_LIMIT_S,
-    MAX_SEARCHED_DELAY_MS,
-    SHAPE_RMS_LIMIT_RAD,
-    dashboard,
-    follower_program_playing,  # noqa: F401  (autouse: programa del follower en Play)
-    wait_until,
-)
+from test_follower_ursim import DELAY_LIMIT_S, MAX_SEARCHED_DELAY_MS, SHAPE_RMS_LIMIT_RAD
 from ur_core import JOINT_NAMES, FollowerState
 from ur_core.clock import now_ns
 from ur_core.streaming import RTDE_PORT, RUNTIME_PLAYING
 
-pytestmark = pytest.mark.ursim
+pytestmark = [pytest.mark.ursim, pytest.mark.usefixtures("follower_program_playing")]
 
 LEADER_IP = CONFIG.leader.ip
 SECONDARY_PORT = 30002
@@ -54,22 +45,12 @@ VIDEO_MIN_FPS = 27.0
 JOINT_KEYS = [f"{joint}.pos" for joint in JOINT_NAMES]
 
 
-def _load_encode_video() -> Callable[[threading.Event, list[int]], None]:
-    """La carga de vídeo de los tests `timing`, cargada por ruta (está en otra carpeta de tests)."""
-    path = Path(__file__).parents[1] / "timing" / "test_follower_timing.py"
-    spec = importlib.util.spec_from_file_location("follower_timing_video_load", path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module._encode_video
-
-
 @contextmanager
 def video_load() -> Iterator[list[int]]:
     """Codifica vídeo a 30 fps en un hilo de este proceso; da el contador de fotogramas."""
     stop = threading.Event()
     frames_encoded = [0]
-    worker = threading.Thread(target=_load_encode_video(), args=(stop, frames_encoded), daemon=True)
+    worker = threading.Thread(target=encode_video, args=(stop, frames_encoded), daemon=True)
     worker.start()
     try:
         # svtav1 tarda unos segundos en dar el primer fotograma: medir solo con el códec ya en marcha.
@@ -160,7 +141,9 @@ def teleop_for(leader: UrLeader, follower: UrFollower, duration_s: float) -> lis
         observation = follower.get_observation()
         action = leader.get_action()
         follower.send_action(action)
-        samples.append(((t_ns - t0_ns) / 1e9, [observation[k] for k in JOINT_KEYS], [action[k] for k in JOINT_KEYS]))
+        samples.append(
+            ((t_ns - t0_ns) / 1e9, [observation[k] for k in JOINT_KEYS], [action[k] for k in JOINT_KEYS])
+        )
         next_ns += period_ns
         time.sleep(max(0.0, (next_ns - now_ns()) / 1e9))
     return samples

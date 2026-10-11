@@ -20,66 +20,22 @@ RTDE independiente con prioridad alta ve los mismos huecos y el `timestamp` del 
 es decir, en el reenvío de Docker/WSL. Ese tramo no existe con un UR real por Ethernet.
 """
 
-import importlib.util
 import threading
 import time
 from collections.abc import Iterator
-from pathlib import Path
-from types import ModuleType
 
 import pytest
-from ur_core import FollowerState, UrFollowerCore, load_config
+from conftest import CONFIG, VIDEO_FPS, encode_video
+from ur_core import FollowerState, UrFollowerCore
 from ur_core.clock import now_ns
 
-CONFIG = load_config(Path(__file__).parents[2] / "configs" / "ur_config.yaml")
 DURATION_S = 60.0
 SEND_HZ = 30
-VIDEO_FPS = 30
-VIDEO_SIZE = (640, 480)
-ENCODER_THREADS = 2  # el valor que recomienda lerobot-record para la codificación en directo
 P99_LIMIT_S = 0.010
 MAX_LIMIT_S = 0.016
 
-pytestmark = pytest.mark.timing
-
-
-def _load_follower_ursim() -> ModuleType:
-    """Los tests `ursim` del follower, cargados por ruta (están en otra carpeta de tests)."""
-    path = Path(__file__).parents[1] / "ursim" / "test_follower_ursim.py"
-    spec = importlib.util.spec_from_file_location("follower_ursim_program", path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-# Autouse: el programa del follower en Play antes de cada escenario (tras una parada termina).
-follower_program_playing = _load_follower_ursim().follower_program_playing
-
-
-def _encode_video(stop: threading.Event, frames_encoded: list[int]) -> None:
-    """Codifica fotogramas de ruido (el peor caso para el códec) al ritmo de una cámara."""
-    import av
-    import numpy as np
-
-    from lerobot.configs.video import VideoEncoderConfig
-
-    encoder = VideoEncoderConfig()
-    width, height = VIDEO_SIZE
-    codec = av.CodecContext.create(encoder.vcodec, "w")
-    codec.width, codec.height, codec.pix_fmt = width, height, encoder.pix_fmt
-    codec.framerate = VIDEO_FPS
-    codec.options = encoder.get_codec_options(ENCODER_THREADS, as_strings=True)
-    rng = np.random.default_rng(0)
-    frames = [rng.integers(0, 256, (height, width, 3), dtype=np.uint8) for _ in range(VIDEO_FPS)]
-    period_ns = round(1e9 / VIDEO_FPS)
-    next_ns = now_ns()
-    while not stop.is_set():
-        image = frames[frames_encoded[0] % len(frames)]
-        codec.encode(av.VideoFrame.from_ndarray(image, format="rgb24").reformat(format=encoder.pix_fmt))
-        frames_encoded[0] += 1
-        next_ns += period_ns
-        time.sleep(max(0.0, (next_ns - now_ns()) / 1e9))
+# El programa del follower en Play antes de cada escenario (tras una parada termina).
+pytestmark = [pytest.mark.timing, pytest.mark.usefixtures("follower_program_playing")]
 
 
 @pytest.fixture
@@ -89,7 +45,7 @@ def video_load(request: pytest.FixtureRequest) -> Iterator[None]:
         return
     stop = threading.Event()
     frames_encoded = [0]
-    worker = threading.Thread(target=_encode_video, args=(stop, frames_encoded), daemon=True)
+    worker = threading.Thread(target=encode_video, args=(stop, frames_encoded), daemon=True)
     worker.start()
     # svtav1 tarda unos segundos en inicializarse: medir solo con el códec ya codificando.
     deadline_ns = now_ns() + 30_000_000_000
