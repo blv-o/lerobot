@@ -9,9 +9,12 @@ Follower en `127.0.0.2` y leader en `127.0.0.3` (URSim 5.25.2), con noVNC en el 
 
 ```
 docker compose -f plugins/ursim/docker-compose.yml up -d     # arrancar (≈1 min hasta que PolyScope responde)
-pytest plugins/tests -m ursim                                # comprobar que los dos responden
+pytest plugins/tests/ursim/test_ursim_ports.py -m ursim      # comprobar que los dos responden por RTDE
 docker compose -f plugins/ursim/docker-compose.yml stop      # parar sin borrar el estado
 ```
+
+Con Docker Desktop los puertos aceptan conexiones antes de que URSim arranque: por eso la comprobación
+pide la versión del controlador por RTDE.
 
 ## 2. Preparar los robots (a mano, en PolyScope)
 
@@ -55,8 +58,8 @@ Copy-Item plugins\configs\ur_config.yaml mi_ur_config.yaml
    ```
    En Linux: `... 2>&1 | tee ur_session.log`.
 
-- `--fps` = 1000 / `target_period_ms` (33 ms → 30). Sin él, LeRobot usa 60.
-- Pregunta `yes/no` dos veces (follower y leader). Con `yes` comprueba la posición; si algo falla, lo dice y vuelve a preguntar.
+- `--fps` = 1000 / `target_period_ms` (33 ms → 30). Sin él, `lerobot-teleoperate` usa 60. En `lerobot-record` es `--dataset.fps` (por defecto 30).
+- Pregunta `yes/no` dos veces (primero el leader, luego el follower). Con `yes` comprueba la posición; si algo falla, lo dice y vuelve a preguntar.
 - Con `no`: «arranque cancelado por el operador» y sale sin mover nada.
 - La pregunta del leader pide un programa de freedrive en Play: solo con un UR real. En URSim, contestar `yes` y mover el leader desde **Move**.
 
