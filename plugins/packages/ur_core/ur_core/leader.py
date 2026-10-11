@@ -61,7 +61,8 @@ class UrLeaderCore:
             f"Leader {self._leader.type} ({self._leader.ip}), desde el Teach Pendant:\n"
             "  - Programa de freedrive cargado y en marcha (Play).\n"
             f"  - Robot en la posición inicial {pose} (base..wrist_3).\n"
-            "¿Continuar? (yes/no): "
+            # Termina en salto de línea: con `| Tee-Object`, PowerShell no muestra una línea sin él.
+            "¿Continuar? (yes/no):\n"
         )
 
     def check_start(self) -> list[str]:
