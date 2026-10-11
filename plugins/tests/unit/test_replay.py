@@ -1,17 +1,21 @@
 """Trazas RTDE grabadas en URSim, reproducidas por FakeRTDE: el bucle reacciona a datos reales.
 
-Las graba plugins/tests/ursim/test_follower_ursim.py con UR_RECORD_TRACES=1. Cada paquete trae
-los campos de la receta de salida del bucle tal como los mandó el controlador (URSim 5.25.2).
+Las graban plugins/tests/ursim/test_follower_ursim.py y test_leader_ursim.py con
+UR_RECORD_TRACES=1. Cada paquete trae los campos de la receta de salida tal como los mandó el
+controlador (URSim 5.25.2).
 """
 
+import itertools
 import json
 import math
+import time
 from pathlib import Path
 from typing import Any
 
 import pytest
 from fakes import FakeClock, FakeDashboard, FakeRTDE
-from ur_core.config import FollowerConfig, ServoConfig, WatchdogConfig
+from ur_core.config import FollowerConfig, ServoConfig, TeleopConfig, UrLeaderConfig, WatchdogConfig
+from ur_core.leader import LeaderReadError, UrLeaderCore
 from ur_core.streaming import FollowerState, SharedState, StreamingLoop
 
 TRACES = Path(__file__).parents[1] / "traces"
@@ -23,6 +27,10 @@ FOLLOWER = FollowerConfig(
     watchdog=WatchdogConfig(hold_s=0.1, stop_s=0.5),
 )
 MAX_STEP_RAD = math.radians(60) / HZ
+LEADER = UrLeaderConfig(type="ur3e", ip="127.0.0.3", rtde_hz=500, timeout_s=0.1)
+LEADER_CONFIG = TeleopConfig(
+    leader=LEADER, follower=FOLLOWER, start_pose_rad=(0.0,) * 6, start_tolerance_rad=math.radians(2)
+)
 
 
 def load_trace(name: str) -> list[dict[str, Any]]:
@@ -90,3 +98,22 @@ def test_program_stopped_from_pendant_stops_on_that_packet() -> None:
     assert "runtime_state=STOPPED" in shared.read_state()[1]
     assert rtde.received == stopped + 1
     assert rtde.written_enable()[-1] == 0
+
+
+def test_leader_times_out_when_the_recorded_timestamp_stops() -> None:
+    """Leader quieto grabado en URSim; al acabarse la traza se repite su último paquete, como un
+    controlador que siguiera mandando datos con el `timestamp` parado."""
+    trace = load_trace("leader_still")
+    rtde = FakeRTDE(itertools.chain(trace, itertools.repeat(trace[-1])), hz=LEADER.rtde_hz)
+    leader = UrLeaderCore(LEADER_CONFIG, rtde_factory=lambda _ip: rtde)
+    leader.connect()
+    try:
+        assert leader.read_joints() == pytest.approx(trace[0]["actual_q"])
+        while rtde.received < len(trace):
+            leader.read_joints()  # mientras el timestamp avanza, no lanza
+            time.sleep(0.01)
+        time.sleep(2 * LEADER.timeout_s)
+        with pytest.raises(LeaderReadError, match="timestamp"):
+            leader.read_joints()
+    finally:
+        leader.disconnect()
