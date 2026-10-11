@@ -148,6 +148,3 @@ class UrLeaderCore:
                 "leader: el hilo de lectura no terminó en %s s; se abandona (es daemon)", JOIN_TIMEOUT_S
             )
         self._thread = None
-
-
-LEADERS: dict[str, type[UrLeaderCore]] = dict.fromkeys(UR_TYPES, UrLeaderCore)

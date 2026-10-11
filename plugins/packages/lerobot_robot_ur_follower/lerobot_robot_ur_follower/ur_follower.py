@@ -2,7 +2,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from ur_core import FOLLOWERS, JOINT_NAMES, confirm_and_check, load_config
+from ur_core import JOINT_NAMES, UrFollowerCore, confirm_and_check, load_config
 
 from lerobot.cameras import make_cameras_from_configs
 from lerobot.robots import Robot
@@ -25,8 +25,7 @@ class UrFollower(Robot):
         super().__init__(config)
         self.config = config
         # El YAML se lee aquí y no en connect(): un error de configuración sale antes de conectar nada.
-        teleop_config = load_config(config.config_path)
-        self.core = FOLLOWERS[teleop_config.follower.type](teleop_config)
+        self.core = UrFollowerCore(load_config(config.config_path))
         self.cameras = make_cameras_from_configs(config.cameras)
         self.ask: Callable[[str], str] = input
 

@@ -17,7 +17,7 @@ from typing import Protocol
 import rtde.rtde as rtde
 
 from ur_core.clock import now_ns
-from ur_core.config import N_JOINTS, UR_TYPES, FollowerConfig, TeleopConfig
+from ur_core.config import N_JOINTS, FollowerConfig, TeleopConfig
 from ur_core.dashboard import DASHBOARD_TIMEOUT_S
 from ur_core.startup import check_pose, start_pose_text
 from ur_core.streaming import (
@@ -241,6 +241,3 @@ class UrFollowerCore:
         if self._exit_disconnect is not None:
             self._exit_disconnect.cancel()
             self._exit_disconnect = None
-
-
-FOLLOWERS: dict[str, type[UrFollowerCore]] = dict.fromkeys(UR_TYPES, UrFollowerCore)
