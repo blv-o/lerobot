@@ -10,8 +10,8 @@ from lerobot.robots import RobotConfig
 class UrFollowerConfig(RobotConfig):
     """Solo la ruta del YAML compartido y las cámaras.
 
-    Todo lo propio del UR (IP, servo, watchdog, posición inicial) vive en el YAML compartido con
-    `ur_leader`; las cámaras llegan por la CLI estándar de LeRobot.
+    Lo propio del UR (IP, posición inicial) vive en el YAML compartido con `ur_leader`, y los
+    ajustes del movimiento en el programa del TP; las cámaras llegan por la CLI estándar de LeRobot.
     """
 
     config_path: Path

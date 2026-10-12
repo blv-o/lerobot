@@ -42,7 +42,7 @@ Copy-Item plugins\configs\ur_config.yaml mi_ur_config.yaml
 
 - Con los URSim no hay que cambiar nada (`profile: sim`).
 - Robots reales: `profile` (`real`, o `{leader: real, follower: sim}`) y sus IP `real:`.
-- `servo.hz` y `watchdog.stop_ms` deben coincidir con el programa del TP.
+- Velocidad máxima e interpolación se ajustan solo en el programa del TP (`plugins/tp/follower_control.script`).
 
 ## 4. Lanzar
 
@@ -58,7 +58,7 @@ Copy-Item plugins\configs\ur_config.yaml mi_ur_config.yaml
    ```
    En Linux: `... 2>&1 | tee ur_session.log`.
 
-- `--fps` = 1000 / `target_period_ms` (33 ms → 30). Sin él, `lerobot-teleoperate` usa 60. En `lerobot-record` es `--dataset.fps` (por defecto 30).
+- `--fps=30`: casa con el tramo de interpolación del programa del TP (33 ms). Sin él, `lerobot-teleoperate` usa 60. En `lerobot-record` es `--dataset.fps` (por defecto 30).
 - Pregunta `yes/no` dos veces (primero el leader, luego el follower). Con `yes` comprueba la posición; si algo falla, lo dice y vuelve a preguntar.
 - Con `no`: «arranque cancelado por el operador» y sale sin mover nada.
 - La pregunta del leader pide un programa de freedrive en Play: solo con un UR real. En URSim, contestar `yes` y mover el leader desde **Move**.

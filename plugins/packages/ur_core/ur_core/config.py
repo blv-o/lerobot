@@ -39,16 +39,8 @@ LOW_COST_LEADER_SCHEMA: dict[str, Any] = {
 }
 SCHEMA: dict[str, Any] = {
     "leader": UR_LEADER_SCHEMA,
-    "follower": {
-        "type": None,
-        "ip": None,
-        "servo": {
-            "hz": None,
-            "max_joint_speed_deg_s": None,
-            "target_period_ms": None,
-        },
-        "watchdog": {"hold_ms": None, "stop_ms": None},
-    },
+    # Sin ajustes del movimiento: viven solo en el programa del TP.
+    "follower": {"type": None, "ip": None},
     "start_pose_deg": None,
     "start_tolerance_deg": None,
 }
@@ -81,26 +73,9 @@ class LowCostLeaderConfig:
 
 
 @dataclass(frozen=True)
-class ServoConfig:
-    """`gain` y `lookahead` de servoj no están aquí: solo viven en el programa del TP."""
-
-    hz: float
-    max_joint_speed_rad_s: float
-    target_period_s: float
-
-
-@dataclass(frozen=True)
-class WatchdogConfig:
-    hold_s: float
-    stop_s: float
-
-
-@dataclass(frozen=True)
 class FollowerConfig:
     type: str
     ip: str
-    servo: ServoConfig
-    watchdog: WatchdogConfig
 
 
 @dataclass(frozen=True)
@@ -207,17 +182,12 @@ def _check_keys(user: dict[str, Any], schema: dict[str, Any], path: str) -> None
 
 def _validate(c: dict[str, Any]) -> None:
     follower = c["follower"]
-    servo, watchdog = follower["servo"], follower["watchdog"]
     _check_leader(c["leader"])
     if follower["type"] not in UR_TYPES:
         raise ConfigError(
             "follower.type", f"tipo {follower['type']!r} no válido; tipos válidos: {list(UR_TYPES)}"
         )
     _check_text("follower.ip", follower["ip"])
-    _check_positive("follower.servo.hz", servo["hz"])
-    _check_positive("follower.servo.max_joint_speed_deg_s", servo["max_joint_speed_deg_s"])
-    _check_positive("follower.servo.target_period_ms", servo["target_period_ms"])
-    _check_watchdog(watchdog, servo)
     _check_start_pose(c["start_pose_deg"])
     _check_start_tolerance(c["start_tolerance_deg"])
 
@@ -261,23 +231,6 @@ def _check_positive(field: str, value: Any) -> None:
         raise ConfigError(field, f"debe ser > 0 (vale {value})")
 
 
-def _check_watchdog(watchdog: dict[str, Any], servo: dict[str, Any]) -> None:
-    _check_positive("follower.watchdog.hold_ms", watchdog["hold_ms"])
-    _check_positive("follower.watchdog.stop_ms", watchdog["stop_ms"])
-    # Si no, saltarían con el ritmo normal: hold entre dos consignas, stop entre dos ciclos RTDE.
-    if watchdog["hold_ms"] <= servo["target_period_ms"]:
-        raise ConfigError(
-            "follower.watchdog.hold_ms",
-            f"debe ser > target_period_ms ({watchdog['hold_ms']} <= {servo['target_period_ms']})",
-        )
-    servo_period_ms = 1000 / servo["hz"]
-    if watchdog["stop_ms"] <= servo_period_ms:
-        raise ConfigError(
-            "follower.watchdog.stop_ms",
-            f"debe ser > 1000 / servo.hz ({watchdog['stop_ms']} <= {servo_period_ms:g})",
-        )
-
-
 def _check_start_tolerance(tolerance_deg: Any) -> None:
     _check_positive("start_tolerance_deg", tolerance_deg)
     if tolerance_deg > MAX_START_TOLERANCE_DEG:
@@ -309,23 +262,9 @@ def _build_leader(leader: dict[str, Any]) -> UrLeaderConfig | LowCostLeaderConfi
 
 
 def _build(c: dict[str, Any]) -> TeleopConfig:
-    follower = c["follower"]
-    servo, watchdog = follower["servo"], follower["watchdog"]
     return TeleopConfig(
         leader=_build_leader(c["leader"]),
-        follower=FollowerConfig(
-            type=follower["type"],
-            ip=follower["ip"],
-            servo=ServoConfig(
-                hz=servo["hz"],
-                max_joint_speed_rad_s=math.radians(servo["max_joint_speed_deg_s"]),
-                target_period_s=servo["target_period_ms"] / 1000,
-            ),
-            watchdog=WatchdogConfig(
-                hold_s=watchdog["hold_ms"] / 1000,
-                stop_s=watchdog["stop_ms"] / 1000,
-            ),
-        ),
+        follower=FollowerConfig(type=c["follower"]["type"], ip=c["follower"]["ip"]),
         start_pose_rad=tuple(math.radians(d) for d in c["start_pose_deg"]),
         start_tolerance_rad=math.radians(c["start_tolerance_deg"]),
     )
