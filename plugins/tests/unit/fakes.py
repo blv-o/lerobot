@@ -6,7 +6,7 @@ sirve para paquetes escritos a mano y para trazas grabadas en URSim.
 
 import math
 import time
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Iterable, Iterator
 from types import SimpleNamespace
 from typing import Any
 
@@ -77,7 +77,6 @@ class FakeRTDE:
       `None` cuando no queda ninguno. Una entrada `None` de la lista es un hueco: en ese periodo
       no llega nada. Al acabarse los paquetes lanza `RTDEException` una vez y desde entonces
       devuelve `None` con `is_connected()` falso, como el cliente real al perder la conexión.
-    - `actions[k]` se ejecuta justo antes de entregar el paquete `k` (0 = el primero).
     - `fail` simula los fallos que el cliente real devuelve como valor, no como excepción:
       `send_input_setup` → `None`, `send_output_setup`/`send_start` → `False`.
       Y los que lanza: `connect` → `ConnectionRefusedError`; `connect_protocol` → `RTDEException`
@@ -98,13 +97,11 @@ class FakeRTDE:
         packets: Iterable[dict[str, Any] | None],
         clock: FakeClock | None = None,
         hz: float = 125,
-        actions: dict[int, Callable[[], None]] | None = None,
         fail: Iterable[str] = (),
     ) -> None:
         self._packets = iter(packets)
         self._clock = clock
         self._period_s = 1 / hz
-        self._actions = actions or {}
         self._fail = set(fail)
         self._input_names: dict[int, list[str]] = {}
         self.received = 0
@@ -162,10 +159,6 @@ class FakeRTDE:
         self._start_ns = self._now_ns()
         return True
 
-    def send_pause(self) -> bool:
-        self.started = False
-        return True
-
     def send(self, input_data: SimpleNamespace) -> bool | None:
         if not (self.connected and self.started):
             return None  # el cliente real registra el error y no envía
@@ -198,9 +191,6 @@ class FakeRTDE:
         return None
 
     def _next_packet(self) -> dict[str, Any] | None:
-        action = self._actions.get(self.received)
-        if action is not None:
-            action()
         self.received += 1
         try:
             return next(self._packets)
@@ -220,13 +210,5 @@ class FakeRTDE:
             raise AttributeError("'NoneType' object has no attribute 'types'")
 
     # --- consultas para los asserts -----------------------------------------------------
-    def written_q(self) -> list[list[float]]:
-        """Consignas articulares escritas, en orden."""
-        return [
-            [fields[f"input_double_register_{i}"] for i in range(6)]
-            for _, fields in self.sent
-            if "input_double_register_0" in fields
-        ]
-
     def written_enable(self) -> list[int]:
         return [fields["input_int_register_0"] for _, fields in self.sent if "input_int_register_0" in fields]

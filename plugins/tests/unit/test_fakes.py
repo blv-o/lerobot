@@ -18,7 +18,6 @@ RTDE_METHODS = [
     "send_output_setup",
     "send_input_setup",
     "send_start",
-    "send_pause",
     "send",
     "receive",
     "receive_buffered",
@@ -85,17 +84,6 @@ def test_fake_rtde_receive_buffered_raises_once_when_the_connection_is_lost() ->
         con.receive_buffered()
     assert con.receive_buffered() is None
     assert not con.is_connected()
-
-
-def test_fake_rtde_runs_actions_before_packet_index() -> None:
-    seen: list[int] = []
-    con = FakeRTDE(packets(3), clock=FakeClock(), actions={1: lambda: seen.append(con.received)})
-    con.connect()
-    con.send_start()
-    con.receive()
-    assert seen == []
-    con.receive()
-    assert seen == [1]
 
 
 def test_fake_rtde_setup_timeout_raises_like_the_official_client(monkeypatch: pytest.MonkeyPatch) -> None:
