@@ -6,6 +6,7 @@ test avanza el reloj, como llegarían al socket entre dos llamadas de LeRobot. N
 
 import logging
 import math
+import socket
 from collections.abc import Callable, Iterable
 from typing import Any
 
@@ -450,6 +451,29 @@ def test_disconnect_with_a_socket_that_fails_to_close_logs_it_and_does_not_raise
     rig.core.disconnect()
     assert not rig.core.is_connected
     assert "fallo al cerrar el socket" in caplog.text
+
+
+def test_follower_opens_no_socket_besides_the_rtde_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ni script por 30002 ni comandos al Dashboard (29999): el programa del TP lo gobierna todo."""
+    opened: list[Any] = []
+    monkeypatch.setattr(socket.socket, "connect", lambda _self, address: opened.append(address))
+    monkeypatch.setattr(socket, "create_connection", lambda address, *_a, **_k: opened.append(address))
+    clock = FakeClock()
+    connections: list[FakeRTDE] = []
+
+    def rtde_factory(_ip: str) -> FakeRTDE:
+        connections.append(FakeRTDE(endless_packets(), clock=clock))
+        return connections[-1]
+
+    core = UrFollowerCore(CONFIG, rtde_factory=rtde_factory, clock=clock)
+    assert core.check_start() == []
+    core.connect()
+    core.send_joints(NEAR)
+    clock.advance_s(LEROBOT_PERIOD_S)
+    core.get_joints()
+    core.disconnect()
+    assert opened == []
+    assert len(connections) == 2  # la breve de check_start y la de control
 
 
 # --- observabilidad ------------------------------------------------------------------------
