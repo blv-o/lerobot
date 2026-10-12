@@ -1,99 +1,122 @@
-"""Follower UR visto desde el proceso de LeRobot: lanza el proceso de streaming y le pasa consignas.
+"""Follower UR visto desde el proceso de LeRobot: escribe consignas y lee el estado del robot.
 
-Esta clase nunca habla con el robot durante la teleoperación: solo lee y escribe `SharedState`,
-así `send_joints` no bloquea el bucle de LeRobot aunque el robot o la red vayan lentos. La única
-conexión que abre es la breve de `check_start`, antes de lanzar el proceso.
+El programa del TP interpola, limita la velocidad y se queda en la última consigna; aquí solo se
+escribe cada consigna al momento y se lee el estado cuando LeRobot lo pide. Todo corre en el hilo
+que llama, sin hilos ni procesos: tras `connect()` nunca se espera al robot (`receive_buffered`
+no bloquea), así que el ritmo lo marca LeRobot. Es una segunda capa: la seguridad real es la de
+PolyScope.
 """
 
 import logging
 import math
-import multiprocessing
-import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
-from multiprocessing.util import Finalize
-from typing import Protocol
+from typing import Any
 
-import rtde.rtde as rtde
+from rtde.rtde import RTDEException
 
 from ur_core.clock import now_ns
-from ur_core.config import N_JOINTS, FollowerConfig, TeleopConfig
-from ur_core.dashboard import DASHBOARD_TIMEOUT_S
-from ur_core.startup import check_pose, rtde_connection, start_pose_text
-from ur_core.streaming import (
-    ARM_TIMEOUT_S,
-    LOCK_TIMEOUT_S,
-    FollowerStartError,
-    FollowerState,
-    FollowerStoppedError,
-    RtdeConnection,
-    SharedState,
-    streaming_main,
-)
+from ur_core.config import N_JOINTS, TeleopConfig
+from ur_core.startup import RtdeConnection, check_pose, rtde_connection, start_pose_text
 
 log = logging.getLogger("ur_core.follower")
 
-# Además de ARM_TIMEOUT_S: conexión RTDE + Dashboard y arranque del proceso spawn (importa todo).
-CONNECT_MARGIN_S = 15.0
-JOIN_MARGIN_S = 2.0
-# Peor cierre del proceso de streaming una vez decidida la parada: el `receive` en curso y el `send`
-# de enable=0 (hasta `rtde.DEFAULT_TIMEOUT` cada uno en el cliente oficial), el `stop` por el
-# Dashboard (conexión, bienvenida y respuesta: hasta `DASHBOARD_TIMEOUT_S` cada una; enviar una
-# línea no espera) y las dos publicaciones de STOP (hasta `LOCK_TIMEOUT_S` cada una). Terminarlo
-# antes deja el cierre a medias: sin enable=0 ni `stop`, solo queda el watchdog del robot.
-SHUTDOWN_JOIN_S = 2 * rtde.DEFAULT_TIMEOUT + 3 * DASHBOARD_TIMEOUT_S + 2 * LOCK_TIMEOUT_S + JOIN_MARGIN_S
-POLL_S = 0.01
+# El robot manda su estado cada 8 ms: leyendo a ese ritmo, la pose que graba LeRobot tiene como
+# mucho 8 ms.
+READ_HZ = 125
+# Tiempo interno de arranque, no un ajuste del operador: que el programa del TP empiece a latir.
+ARM_TIMEOUT_S = 6.0
+# Sin paquete nuevo en este tiempo, la conexión está perdida aunque siga abierta (cable caído).
+STALE_S = 1.0
+
+OUTPUT_NAMES = [
+    "actual_q",
+    "timestamp",
+    "robot_mode",
+    "safety_mode",
+    "runtime_state",
+    "output_int_register_0",
+]
+OUTPUT_TYPES = ["VECTOR6D", "DOUBLE", "INT32", "INT32", "UINT32", "INT32"]
+SETPOINT_NAMES = [f"input_double_register_{i}" for i in range(N_JOINTS)]
+# Una sola receta de entrada: consigna, enable y contador llegan siempre juntos al robot.
+# El contador cambia en cada escritura: el programa del TP toma cada cambio como una consigna
+# nueva (no espera a un valor, porque los registros guardan el último tras desconectar).
+COMMAND_NAMES = [*SETPOINT_NAMES, "input_int_register_0", "input_int_register_1"]
+COMMAND_TYPES = ["DOUBLE"] * N_JOINTS + ["INT32", "INT32"]
+INT32_LIMIT = 2**31
+
+# Valores de RTDE (guía de RTDE de Universal Robots), con nombre para que los motivos se lean.
+ROBOT_MODES = {
+    -1: "NO_CONTROLLER",
+    0: "DISCONNECTED",
+    1: "CONFIRM_SAFETY",
+    2: "BOOTING",
+    3: "POWER_OFF",
+    4: "POWER_ON",
+    5: "IDLE",
+    6: "BACKDRIVE",
+    7: "RUNNING",
+    8: "UPDATING_FIRMWARE",
+}
+SAFETY_MODES = {
+    1: "NORMAL",
+    2: "REDUCED",
+    3: "PROTECTIVE_STOP",
+    4: "RECOVERY",
+    5: "SAFEGUARD_STOP",
+    6: "SYSTEM_EMERGENCY_STOP",
+    7: "ROBOT_EMERGENCY_STOP",
+    8: "VIOLATION",
+    9: "FAULT",
+    10: "VALIDATE_JOINT_ID",
+    11: "UNDEFINED_SAFETY_MODE",
+    12: "AUTOMATIC_MODE_SAFEGUARD_STOP",
+    13: "SYSTEM_THREE_POSITION_ENABLING_STOP",
+}
+RUNTIME_STATES = {0: "STOPPING", 1: "STOPPED", 2: "PLAYING", 3: "PAUSING", 4: "PAUSED", 5: "RESUMING"}
+ROBOT_MODE_RUNNING = 7
+SAFETY_MODES_OK = (1, 2)  # REDUCED es funcionamiento normal con límites más bajos
+RUNTIME_PLAYING = 2
 
 
-@dataclass(frozen=True)
-class FollowerStatus:
-    state: FollowerState
-    stop_reason: str
-    period_p50_s: float
-    period_p99_s: float
-    period_max_s: float
+class FollowerStartError(RuntimeError):
+    """El follower no llegó a quedar armado; el motivo dice qué falló."""
 
 
-class Worker(Protocol):
-    """Lo que se usa de `multiprocessing.Process` (o de un hilo equivalente en los tests)."""
-
-    def is_alive(self) -> bool: ...
-    def join(self, timeout: float | None = None) -> None: ...
-    def terminate(self) -> None: ...
+class FollowerStoppedError(RuntimeError):
+    """El follower ya paró (motivo en el mensaje); hay que relanzar el comando desde el TP."""
 
 
-Launcher = Callable[[FollowerConfig, float, SharedState], Worker]
+class _ConnectionLostError(Exception):
+    pass
 
 
-def spawn_worker(follower: FollowerConfig, start_tolerance_rad: float, shared: SharedState) -> Worker:
-    # spawn en todas las plataformas: el mismo comportamiento en Windows y Linux.
-    process = multiprocessing.get_context("spawn").Process(
-        target=streaming_main,
-        args=(follower, start_tolerance_rad, shared),
-        name="ur-follower-streaming",
-        daemon=True,
-    )
-    process.start()
-    return process
+def _named(table: dict[int, str], value: int) -> str:
+    return f"{table.get(value, '?')} ({value})"
 
 
 class UrFollowerCore:
     def __init__(
         self,
         config: TeleopConfig,
-        launch: Launcher = spawn_worker,
         rtde_factory: Callable[[str], RtdeConnection] = rtde_connection,
+        clock: Callable[[], int] = now_ns,
     ) -> None:
         self._config = config
-        self._launch = launch
         self._rtde_factory = rtde_factory
-        self._shared: SharedState | None = None
-        self._worker: Worker | None = None
-        self._exit_disconnect: Finalize | None = None
+        self._clock = clock
+        self._rtde: RtdeConnection | None = None
+        self._command: Any = None
+        self._counter = 0
+        self._last_pkt: Any = None
+        self._last_rx_ns = 0
+        self._last_q_rad: list[float] = []  # última consigna escrita
+        self._enabled = False
+        self._stop_reason = ""
 
     @property
     def is_connected(self) -> bool:
-        return self._worker is not None
+        return self._rtde is not None
 
     # --- arranque -----------------------------------------------------------------------
     def start_prompt(self) -> str:
@@ -118,122 +141,249 @@ class UrFollowerCore:
             "follower",
             follower.ip,
             self._rtde_factory(follower.ip),
-            follower.servo.hz,  # leído aquí: un AttributeError nuestro no es "el robot no respondió"
+            READ_HZ,
             self._config.start_pose_rad,
             self._config.start_tolerance_rad,
         )
 
     def connect(self) -> None:
-        """Lanza el proceso de streaming y vuelve cuando el follower está armado y quieto (WAIT)."""
-        if self._worker is not None:
+        """Abre RTDE, escribe la pose medida deshabilitada y vuelve cuando late el programa del TP."""
+        if self._rtde is not None:
             return
-        shared = SharedState()
-        worker = self._launch(self._config.follower, self._config.start_tolerance_rad, shared)
-        self._shared, self._worker = shared, worker
-        # Al salir del intérprete sin disconnect() (un `finally` que lanzó antes de llegar a él),
-        # multiprocessing termina el proceso daemon sin su cierre: sin enable=0 ni `stop`, el
-        # robot lo para su watchdog y queda en parada de protección. Un Finalize con prioridad
-        # >= 0 corre dentro de su hook de salida justo antes de terminar los daemon, sea cual
-        # sea el orden de los hooks de atexit (que `multiprocessing.get_logger()` reordena).
-        self._exit_disconnect = Finalize(self, self.disconnect, exitpriority=0)
-        deadline_ns = now_ns() + round((ARM_TIMEOUT_S + CONNECT_MARGIN_S) * 1e9)
-        while True:
-            alive = worker.is_alive()  # antes de leer el estado: si murió, el STOP ya está publicado
-            try:
-                state, reason = shared.read_state()
-            except FollowerStoppedError as exc:  # murió con el Lock cogido
-                self._abort(JOIN_MARGIN_S)
-                raise FollowerStartError(str(exc)) from exc
-            if state == FollowerState.WAIT:
-                return
-            if state == FollowerState.STOP:
-                # STOP se publica antes del cierre: si ya se vio el programa del TP, falta su `stop`.
-                self._abort(SHUTDOWN_JOIN_S)
-                raise FollowerStartError(reason)
-            if not alive:
-                self._abort(JOIN_MARGIN_S)
-                raise FollowerStartError("el proceso del follower terminó sin armar ni publicar el motivo")
-            if now_ns() > deadline_ns:
-                self._abort(JOIN_MARGIN_S)  # atascado: su propio ARM_TIMEOUT_S ya pasó
+        self._rtde = self._rtde_factory(self._config.follower.ip)
+        self._last_q_rad, self._enabled, self._stop_reason = [], False, ""
+        try:
+            self._arm()
+        except BaseException:
+            # El cliente oficial deja el socket abierto si falla la negociación.
+            self._rtde.disconnect()
+            self._rtde = None
+            raise
+        log.info("follower: conectado y armado t_ns=%d", self._clock())
+
+    def _arm(self) -> None:
+        rtde, ip = self._connection(), self._config.follower.ip
+        try:
+            rtde.connect()
+        except (RTDEException, OSError) as exc:
+            # RTDEException: el puerto acepta pero el controlador no negocia el protocolo (Docker
+            # publica el puerto aunque URSim aún esté arrancando).
+            raise FollowerStartError(
+                f"no se puede conectar por RTDE a {ip}: {exc} (¿el controlador todavía está arrancando?)"
+            ) from exc
+        if not self._rtde_setup(rtde.send_output_setup, OUTPUT_NAMES, OUTPUT_TYPES, frequency=READ_HZ):
+            raise FollowerStartError(f"RTDE: el robot rechazó la receta de salida {OUTPUT_NAMES}")
+        self._command = self._input_setup()
+        if not self._rtde_setup(rtde.send_start):
+            raise FollowerStartError("RTDE: no se pudo iniciar la sincronización")
+        pkt = self._receive_arming()
+        self._check_ready(pkt)
+        try:
+            # Consigna = pose actual y deshabilitado desde la primera escritura: nunca hay salto.
+            self._write(pkt.actual_q, enable=0)
+        except _ConnectionLostError as exc:
+            raise FollowerStartError(str(exc)) from exc
+        self._wait_for_heartbeat(pkt)
+
+    def _wait_for_heartbeat(self, pkt: Any) -> None:
+        hb0 = pkt.output_int_register_0
+        deadline_ns = self._clock() + round(ARM_TIMEOUT_S * 1e9)
+        while pkt.output_int_register_0 == hb0:
+            if self._clock() > deadline_ns:
                 raise FollowerStartError(
-                    f"el follower no quedó armado en {ARM_TIMEOUT_S + CONNECT_MARGIN_S} s; proceso terminado"
+                    "el programa del follower no está en marcha: dale a Play en el TP "
+                    f"(heartbeat sin cambios en {ARM_TIMEOUT_S} s)"
                 )
-            time.sleep(POLL_S)
+            pkt = self._receive_arming()
+        self._last_pkt, self._last_rx_ns = pkt, self._clock()
+
+    def _receive_arming(self) -> Any:
+        """Solo durante el armado se espera al robot: después nunca se llama a `receive()`."""
+        ip = self._config.follower.ip
+        try:
+            pkt = self._connection().receive()
+        except (RTDEException, OSError) as exc:
+            raise FollowerStartError(
+                f"RTDE: se perdió la conexión con {ip} durante el armado: {exc}"
+            ) from exc
+        if pkt is None:  # el cliente oficial devuelve None tras su DEFAULT_TIMEOUT sin datos
+            raise FollowerStartError(f"RTDE: sin datos del robot {ip} durante el armado")
+        return pkt
+
+    def _rtde_setup(self, call: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        """Una llamada de configuración del cliente oficial, con sus fallos como FollowerStartError.
+
+        Envuelve solo la llamada a la librería: un AttributeError de nuestro código no es "el robot
+        no respondió", es un error nuestro y tiene que verse como tal.
+        """
+        ip = self._config.follower.ip
+        try:
+            return call(*args, **kwargs)
+        except AttributeError as exc:
+            # El cliente oficial hace `result.types` sobre la respuesta sin comprobar que llegó:
+            # si el robot no contesta a tiempo lanza AttributeError en vez de devolver un error.
+            raise FollowerStartError(f"el robot {ip} no respondió a la configuración RTDE") from exc
+        except (RTDEException, OSError) as exc:
+            # `sock.sendall` lanza OSError; el cliente lanza RTDEException si el robot cierra.
+            raise FollowerStartError(
+                f"RTDE: se perdió la conexión con {ip} durante la configuración: {exc}"
+            ) from exc
+
+    def _input_setup(self) -> Any:
+        busy = (
+            "RTDE: registros de entrada input_double_register_0..5 / input_int_register_0..1 "
+            "no disponibles (¿los usa otro cliente RTDE o un bus de campo?)"
+        )
+        try:
+            command = self._rtde_setup(self._connection().send_input_setup, COMMAND_NAMES, COMMAND_TYPES)
+        except ValueError as exc:
+            # El cliente oficial lanza ValueError al leer `IN_USE` en la respuesta, en vez de
+            # devolver None. Solo aquí: en la receta de salida significaría otra cosa.
+            raise FollowerStartError(f"{busy}: {exc}") from exc
+        if command is None:  # tipos distintos a los pedidos
+            raise FollowerStartError(busy)
+        return command
+
+    @staticmethod
+    def _check_ready(pkt: Any) -> None:
+        # `runtime_state` no: el programa del TP puede arrancar mientras se espera su heartbeat.
+        if pkt.robot_mode != ROBOT_MODE_RUNNING:
+            raise FollowerStartError(
+                f"el follower no está listo: robot_mode={_named(ROBOT_MODES, pkt.robot_mode)} "
+                "(encender y soltar frenos desde el Teach Pendant)"
+            )
+        if pkt.safety_mode not in SAFETY_MODES_OK:
+            raise FollowerStartError(
+                f"el follower no está listo: safety_mode={_named(SAFETY_MODES, pkt.safety_mode)}"
+            )
 
     # --- teleoperación ------------------------------------------------------------------
     def send_joints(self, q_rad: Sequence[float]) -> None:
-        """Deja la consigna (6 rad) para el proceso de streaming; no espera al robot."""
+        """Escribe la consigna (6 rad) con enable=1 en un único paquete; no espera al robot."""
         target_rad = [float(x) for x in q_rad]
         if len(target_rad) != N_JOINTS:
             raise ValueError(f"se esperaban {N_JOINTS} articulaciones y llegan {len(target_rad)}")
         if not all(math.isfinite(x) for x in target_rad):
             raise ValueError(f"consigna con valores no finitos: {target_rad}")
-        shared, worker = self._connected()
-        self._raise_if_stopped(shared, alive=worker.is_alive())
-        # El mismo reloj que usa el proceso de streaming para la edad de la consigna.
-        shared.write_target(target_rad, now_ns())
+        pkt = self._read_state()
+        if not self._enabled:
+            self._check_first_target(target_rad, pkt.actual_q)
+        try:
+            self._write(target_rad, enable=1)
+        except _ConnectionLostError as exc:
+            raise self._stop(str(exc)) from exc
+        if not self._enabled:
+            self._enabled = True
+            log.info("follower: habilitado t_ns=%d", self._clock())
 
     def get_joints(self) -> list[float]:
         """Última `actual_q` medida, en rad.
 
-        Tras STOP o con el proceso de streaming muerto lanza en vez de devolver la última pose: ya
-        no se actualiza, y una pose congelada haría que LeRobot siguiera grabando con el robot parado.
+        Tras una parada lanza en vez de devolver la última pose: ya no se actualiza, y una pose
+        congelada haría que LeRobot siguiera grabando con el robot parado.
         """
-        shared, worker = self._connected()
-        self._raise_if_stopped(shared, alive=worker.is_alive())
-        return shared.read_measured()
+        return list(self._read_state().actual_q)
 
-    def status(self) -> FollowerStatus:
-        if self._shared is None:
-            raise RuntimeError("follower no conectado: llama a connect()")
-        state, reason = self._shared.read_state()
-        p50_s, p99_s, max_s = self._shared.read_period_stats()
-        return FollowerStatus(state, reason, p50_s, p99_s, max_s)
-
-    def disconnect(self) -> None:
-        """Pide la parada y espera a que el proceso pase por su cierre. Idempotente."""
-        if self._worker is None or self._shared is None:
-            return
-        self._shared.request_stop()
-        self._worker.join(timeout=SHUTDOWN_JOIN_S)
-        if self._worker.is_alive():
-            log.error(
-                "follower: el proceso de streaming no terminó a tiempo; se fuerza (el watchdog del robot lo para)"
+    def _check_first_target(self, target_rad: list[float], measured_rad: Sequence[float]) -> None:
+        error_rad = max(abs(t - m) for t, m in zip(target_rad, measured_rad, strict=True))
+        # Leader y follower pasan cada uno el arranque a ± tolerancia: entre sí, hasta el doble.
+        max_error_rad = 2 * self._config.start_tolerance_rad
+        if error_rad > max_error_rad:
+            raise self._stop(
+                f"primera consigna lejos de la posición actual "
+                f"({math.degrees(error_rad):.1f}° > {math.degrees(max_error_rad):.1f}°)"
             )
-            self._worker.terminate()
-            self._worker.join(timeout=JOIN_MARGIN_S)
-        self._worker = None
-        self._cancel_exit_disconnect()
 
-    def _connected(self) -> tuple[SharedState, Worker]:
-        if self._worker is None or self._shared is None:
-            raise RuntimeError("follower no conectado: llama a connect()")
-        return self._shared, self._worker
+    def _read_state(self) -> Any:
+        """Vacía lo acumulado y comprueba el paquete más nuevo. Tras una parada, lanza siempre."""
+        self._connection()
+        if self._stop_reason:
+            raise FollowerStoppedError(self._stop_reason)
+        try:
+            self._drain()
+        except _ConnectionLostError as exc:
+            raise self._stop(str(exc)) from exc
+        reason = self._robot_fault(self._last_pkt)
+        if reason:
+            raise self._stop(reason)
+        return self._last_pkt
+
+    def _drain(self) -> None:
+        """Se queda con el último paquete llegado. La edad se mide después de vaciar: tras una
+        pausa larga llegan todos los acumulados y no es una conexión perdida."""
+        rtde = self._connection()
+        newest = None
+        try:
+            while (pkt := rtde.receive_buffered()) is not None:
+                newest = pkt
+        except (RTDEException, OSError) as exc:
+            raise _ConnectionLostError(f"se perdió la conexión RTDE: {exc}") from exc
+        if newest is not None:
+            self._last_pkt, self._last_rx_ns = newest, self._clock()
+        # El cliente oficial entrega lo que quedaba en su buffer aunque el robot ya cerrara.
+        if not rtde.is_connected():
+            raise _ConnectionLostError("se perdió la conexión RTDE: conexión cerrada")
+        age_ns = self._clock() - self._last_rx_ns
+        if age_ns > STALE_S * 1e9:
+            raise _ConnectionLostError(
+                f"se perdió la conexión RTDE: ningún paquete nuevo en {age_ns / 1e9:.1f} s"
+            )
 
     @staticmethod
-    def _raise_if_stopped(shared: SharedState, alive: bool) -> None:
-        """`alive` se lee ANTES que el estado: si el proceso murió después de publicar STOP, se
-        ve su motivo; si murió sin publicarlo (EDR, `terminate()`, fallo nativo), el estado se
-        quedó en RUN/HOLD y solo `alive` lo delata."""
-        state, reason = shared.read_state()
-        if state == FollowerState.STOP:
-            raise FollowerStoppedError(f"el follower está parado: {reason}")
-        if not alive:
-            raise FollowerStoppedError(
-                "el proceso del follower terminó sin publicar el motivo; el watchdog del robot lo para"
+    def _robot_fault(pkt: Any) -> str:
+        if pkt.safety_mode not in SAFETY_MODES_OK:
+            return f"parada de seguridad del follower: safety_mode={_named(SAFETY_MODES, pkt.safety_mode)}"
+        if pkt.robot_mode != ROBOT_MODE_RUNNING:
+            return f"el follower dejó de estar en marcha: robot_mode={_named(ROBOT_MODES, pkt.robot_mode)}"
+        if pkt.runtime_state != RUNTIME_PLAYING:
+            return (
+                "el programa del follower no está en ejecución: "
+                f"runtime_state={_named(RUNTIME_STATES, pkt.runtime_state)}"
             )
+        return ""
 
-    def _abort(self, join_s: float) -> None:
-        assert self._worker is not None
-        self._worker.join(timeout=join_s)
-        if self._worker.is_alive():
-            self._worker.terminate()
-            self._worker.join(timeout=JOIN_MARGIN_S)
-        self._worker = None
-        self._cancel_exit_disconnect()
+    def _stop(self, reason: str) -> FollowerStoppedError:
+        """La primera parada es definitiva: desde aquí todas las llamadas lanzan con su motivo."""
+        self._stop_reason = reason
+        log.error("follower: parado t_ns=%d %s", self._clock(), reason)
+        return FollowerStoppedError(reason)
 
-    def _cancel_exit_disconnect(self) -> None:
-        # El registro de multiprocessing guarda `self.disconnect`: sin cancelarlo, retiene el objeto.
-        if self._exit_disconnect is not None:
-            self._exit_disconnect.cancel()
-            self._exit_disconnect = None
+    def _write(self, q_rad: Sequence[float], enable: int) -> None:
+        for name, value in zip(SETPOINT_NAMES, q_rad, strict=True):
+            setattr(self._command, name, value)
+        self._command.input_int_register_0 = enable
+        self._counter = (self._counter + 1) % INT32_LIMIT
+        self._command.input_int_register_1 = self._counter
+        # El cliente oficial devuelve None si no puede enviar, pero `sock.sendall` sí lanza
+        # OSError (p. ej. conexión reiniciada).
+        try:
+            sent = self._connection().send(self._command)
+        except OSError as exc:
+            raise _ConnectionLostError(f"se perdió la conexión RTDE: {exc}") from exc
+        if not sent:
+            raise _ConnectionLostError("se perdió la conexión RTDE: no se pudo escribir la consigna")
+        self._last_q_rad = list(q_rad)
+
+    # --- parada -------------------------------------------------------------------------
+    def disconnect(self) -> None:
+        """enable=0 (el programa del TP frena con `stopj` y termina) y cierra RTDE. Idempotente.
+
+        No lanza: va en el `finally` de LeRobot, antes de cerrar el leader y las cámaras.
+        """
+        if self._rtde is None:
+            return
+        try:
+            if self._rtde.is_connected():
+                # La receta lleva siempre la consigna: repetir la última no pide ningún movimiento.
+                self._write(self._last_q_rad, enable=0)
+                log.info("follower: parada pedida (disconnect) t_ns=%d", self._clock())
+        except _ConnectionLostError as exc:
+            log.error("follower: no se pudo escribir enable=0 (Stop en el TP): %s", exc)
+        finally:
+            self._rtde.disconnect()
+            self._rtde = None
+
+    def _connection(self) -> RtdeConnection:
+        if self._rtde is None:
+            raise RuntimeError("follower no conectado: llama a connect()")
+        return self._rtde

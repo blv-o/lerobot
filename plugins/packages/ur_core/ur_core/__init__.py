@@ -8,12 +8,10 @@ from ur_core.config import JOINT_NAMES, ConfigError, TeleopConfig, load_config
 from ur_core.follower import FollowerStoppedError, UrFollowerCore
 from ur_core.leader import LeaderReadError, UrLeaderCore
 from ur_core.startup import confirm_start
-from ur_core.streaming import FollowerState
 
 __all__ = [
     "JOINT_NAMES",
     "ConfigError",
-    "FollowerState",
     "FollowerStoppedError",
     "LeaderReadError",
     "TeleopConfig",
