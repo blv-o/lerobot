@@ -133,6 +133,8 @@ def test_sine_is_tracked_with_small_error_and_no_protective_stop(core: UrFollowe
     # lejos de la posición inicial y el arranque de los demás tests fallaría.
     send_for(core, q0, SETTLE_S)
     core.disconnect()
+    # La traza tiene que acabar con el programa parado: la reproduce test_replay.py.
+    wait_until(lambda: not program_running(), 2.0, "programa parado")
     recorder.save("follower_sine")
     delays_s = [ms / 1000 for ms in range(0, MAX_SEARCHED_DELAY_MS + 1, 5)]
     delay_s = min(delays_s, key=lambda d: shape_rms_rad(samples, q0, d))
@@ -152,6 +154,7 @@ def test_large_step_is_followed_at_most_at_the_speed_limit(core: UrFollowerCore)
     recorder = follower_recorder()
     core.connect()
     q0 = core.get_joints()
+    send_for(core, q0, ENABLE_S)  # la primera consigna tiene que estar cerca de la pose medida
     step = [*q0[:5], q0[5] + STEP_RAD]
     send_for(core, step, STEP_S)
     reached_rad = abs(core.get_joints()[5] - step[5])
