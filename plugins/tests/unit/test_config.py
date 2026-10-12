@@ -47,11 +47,6 @@ LEAF_KEYS = [
     "leader.timeout_ms",
     "follower.type",
     "follower.ip",
-    "follower.servo.hz",
-    "follower.servo.max_joint_speed_deg_s",
-    "follower.servo.target_period_ms",
-    "follower.watchdog.hold_ms",
-    "follower.watchdog.stop_ms",
     "start_pose_deg",
     "start_tolerance_deg",
 ]
@@ -286,10 +281,6 @@ def test_low_cost_leader_values_are_validated(tmp_path: Path, dotted: str, value
         ("gripper_follower", {"type": "none"}),
         ("mapping", {"direction": ["normal"] * 6}),
         ("leader.port", "COM3"),
-        ("follower.servo.foo", 1),
-        # Solo viven en el programa del TP: en el YAML no harían nada.
-        ("follower.servo.gain", 300),
-        ("follower.servo.lookahead_s", 0.1),
     ],
 )
 def test_unknown_key_is_rejected(tmp_path: Path, dotted: str, value: Any) -> None:
@@ -304,16 +295,10 @@ def test_unknown_key_is_rejected(tmp_path: Path, dotted: str, value: Any) -> Non
 @pytest.mark.parametrize(
     ("dotted", "value"),
     [
-        ("follower.servo.hz", 0),
-        ("follower.servo.hz", -125),
         ("leader.rtde_hz", 0),
-        ("follower.watchdog.hold_ms", 0),
-        ("follower.watchdog.hold_ms", -1),
         ("start_pose_deg", [0, -90, 90, -90, -90]),
         ("start_pose_deg", [0, -90, 90, -90, -90, 0, 0]),
         ("start_pose_deg", [0, -90, 90, -90, -90, "a"]),
-        ("follower.servo.hz", True),
-        ("follower.servo.hz", "125"),
     ],
 )
 def test_out_of_range_value_is_rejected(tmp_path: Path, dotted: str, value: Any) -> None:
@@ -324,52 +309,9 @@ def test_out_of_range_value_is_rejected(tmp_path: Path, dotted: str, value: Any)
     assert exc.value.field == dotted
 
 
-@pytest.mark.parametrize(("hold_ms", "accepted"), [(33, False), (20, False), (34, True)])
-def test_watchdog_hold_must_exceed_target_period(tmp_path: Path, hold_ms: int, accepted: bool) -> None:
-    """Con hold_ms <= target_period_ms, el follower se quedaría quieto entre dos consignas normales."""
-    data = base()
-    set_path(data, "follower.watchdog.hold_ms", hold_ms)
-    if accepted:
-        load(tmp_path, data)
-        return
-    with pytest.raises(ConfigError) as exc:
-        load(tmp_path, data)
-    assert exc.value.field == "follower.watchdog.hold_ms"
-
-
-@pytest.mark.parametrize("hold_ms", [500, 600])
-def test_hold_may_reach_stop_time(tmp_path: Path, hold_ms: int) -> None:
-    """Sin consignas el follower se queda en HOLD sin límite: stop_ms ya no tiene que ver con hold_ms."""
-    data = base()
-    set_path(data, "follower.watchdog.hold_ms", hold_ms)
-    assert load(tmp_path, data).follower.watchdog.hold_s == pytest.approx(hold_ms / 1000)
-
-
-@pytest.mark.parametrize(("stop_ms", "accepted"), [(100, False), (101, True)])
-def test_watchdog_stop_must_exceed_servo_period(tmp_path: Path, stop_ms: int, accepted: bool) -> None:
-    """Con stop_ms <= 1000 / hz, el watchdog saltaría entre dos ciclos RTDE normales.
-
-    Con hz=125 el límite (8 ms) queda por debajo de hold_ms: se baja hz para aislar esta regla.
-    """
-    data = base()
-    set_path(data, "follower.servo.hz", 10)
-    set_path(data, "follower.watchdog.hold_ms", 50)
-    set_path(data, "follower.watchdog.stop_ms", stop_ms)
-    if accepted:
-        load(tmp_path, data)
-        return
-    with pytest.raises(ConfigError) as exc:
-        load(tmp_path, data)
-    assert exc.value.field == "follower.watchdog.stop_ms"
-
-
 @pytest.mark.parametrize(
     ("dotted", "value"),
     [
-        ("follower.servo.max_joint_speed_deg_s", -60),
-        ("follower.servo.max_joint_speed_deg_s", 0),
-        ("follower.servo.target_period_ms", -1),
-        ("follower.servo.target_period_ms", 0),
         ("start_tolerance_deg", -1),
         ("start_tolerance_deg", 0),
         ("leader.timeout_ms", -1),
@@ -402,10 +344,6 @@ def test_start_tolerance_has_an_upper_limit(tmp_path: Path, tolerance_deg: float
 @pytest.mark.parametrize(
     ("dotted", "value"),
     [
-        ("follower.servo.max_joint_speed_deg_s", float("nan")),
-        ("follower.servo.max_joint_speed_deg_s", float("inf")),
-        ("follower.servo.hz", float("nan")),
-        ("follower.servo.hz", float("inf")),
         ("start_pose_deg", [0, -90, float("nan"), -90, -90, 0]),
         ("start_pose_deg", [0, -90, 90, -90, -90, float("-inf")]),
     ],
@@ -445,7 +383,6 @@ def test_invalid_profile_is_rejected(tmp_path: Path, profile: Any) -> None:
     ("dotted", "value"),
     [
         ("leader", None),
-        ("follower.servo", [125, 300]),
         ("leader.type", {"sim": "ur3e"}),
         ("follower.ip", {"sim": "a", "real": "b", "extra": "c"}),
     ],

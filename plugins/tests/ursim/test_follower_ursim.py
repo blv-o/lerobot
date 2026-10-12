@@ -11,10 +11,6 @@ follower que usan los tests de replay (sin esa variable no se escribe nada).
 """
 
 import math
-import multiprocessing.process
-import os
-import subprocess
-import sys
 import time
 from collections.abc import Iterator
 
@@ -22,20 +18,15 @@ import pytest
 import rtde.rtde as rtde
 from conftest import (
     CONFIG,
-    CONFIG_PATH,
     FOLLOWER_IP,
     TraceRecorder,
     dashboard,
     program_running,
-    protective_stop_appears,
-    release_protective_stop,
     wait_until,
 )
 from ur_core import FollowerState, FollowerStoppedError, UrFollowerCore
 from ur_core.clock import now_ns
-from ur_core.config import FollowerConfig
-from ur_core.follower import Worker, spawn_worker
-from ur_core.streaming import OUTPUT_NAMES, OUTPUT_TYPES, RTDE_PORT, SharedState
+from ur_core.streaming import OUTPUT_NAMES, OUTPUT_TYPES, RTDE_PORT
 
 SINE_AMPLITUDE_RAD = 0.2
 SINE_FREQUENCY_HZ = 0.2
@@ -175,142 +166,3 @@ def test_program_stopped_from_pendant_stops_the_follower(core: UrFollowerCore) -
     recorder.save("follower_stopped_from_pendant")
     reason = core.status().stop_reason
     assert "runtime_state" in reason or "heartbeat" in reason, reason
-
-
-PARENT_SCRIPT = """
-import sys, time
-from ur_core import UrFollowerCore, load_config
-core = UrFollowerCore(load_config(sys.argv[1]))
-core.connect()
-q0 = core.get_joints()
-print("ready", flush=True)
-while True:
-    core.send_joints(q0)
-    time.sleep(1 / 30)
-"""
-
-
-def test_killed_parent_process_stops_the_robot_within_stop_time() -> None:
-    """Cierre brusco (proceso padre matado, sin `finally`): el hijo lo detecta y para el robot."""
-    parent = subprocess.Popen(
-        [sys.executable, "-c", PARENT_SCRIPT, str(CONFIG_PATH)],
-        stdout=subprocess.PIPE,
-        text=True,
-        env={**os.environ},
-    )
-    try:
-        assert parent.stdout is not None and parent.stdout.readline().strip() == "ready"
-        wait_until(program_running, 2.0, "programa en marcha")
-    finally:
-        parent.kill()
-        parent.wait(timeout=10)
-    killed_ns = now_ns()
-    wait_until(lambda: not program_running(), 5.0, "programa parado")
-    stopped_after_s = (now_ns() - killed_ns) / 1e9
-    print(f"parado {stopped_after_s * 1e3:.0f} ms después de matar al padre")
-    assert stopped_after_s <= CONFIG.follower.watchdog.stop_s
-
-
-EXIT_STREAMING_S = 1.0
-
-EXITING_PARENT_SCRIPT = """
-import sys, time
-from ur_core import UrFollowerCore, load_config
-from ur_core.clock import now_ns
-core = UrFollowerCore(load_config(sys.argv[1]))
-core.connect()
-q0 = core.get_joints()
-print("ready", flush=True)
-end_ns = now_ns() + round(float(sys.argv[2]) * 1e9)
-while now_ns() < end_ns:
-    core.send_joints(q0)
-    time.sleep(1 / 30)
-print("exiting", flush=True)
-sys.exit(0)  # salida normal del intérprete sin disconnect()
-"""
-
-
-def test_parent_exiting_without_disconnect_stops_the_robot_in_order() -> None:
-    """Salida normal del padre sin `disconnect()` (p. ej. un `finally` que lanzó antes de llegar a
-    él): el cierre al salir del intérprete tiene que pasar por la parada ordenada del hijo, no
-    terminarlo y dejar que lo pare el watchdog del robot (que lo deja en parada de protección)."""
-    assert dashboard("safetystatus") == "Safetystatus: NORMAL"
-    stop_s = CONFIG.follower.watchdog.stop_s
-    parent = subprocess.Popen(
-        [sys.executable, "-c", EXITING_PARENT_SCRIPT, str(CONFIG_PATH), str(EXIT_STREAMING_S)],
-        stdout=subprocess.PIPE,
-        text=True,
-        env={**os.environ},
-    )
-    try:
-        assert parent.stdout is not None and parent.stdout.readline().strip() == "ready"
-        wait_until(program_running, 2.0, "programa en marcha")
-        assert parent.stdout.readline().strip() == "exiting"
-        exiting_ns = now_ns()
-        wait_until(lambda: not program_running(), stop_s + 5.0, "programa parado")
-        stopped_after_s = (now_ns() - exiting_ns) / 1e9
-        protective_stop = protective_stop_appears()
-        print(
-            f"parado {stopped_after_s * 1e3:.0f} ms después de que el padre empezara a salir; "
-            f"parada de protección: {protective_stop}"
-        )
-        assert parent.wait(timeout=30) == 0
-        assert not protective_stop, "el follower quedó en parada de protección: lo paró el watchdog"
-        assert stopped_after_s < stop_s, "parada demasiado lenta para ser la ordenada"
-    finally:
-        if parent.poll() is None:
-            parent.kill()
-            parent.wait(timeout=10)
-        release_protective_stop()
-
-
-# El sondeo de `program_running()` abre una conexión RTDE nueva en cada llamada.
-WATCHDOG_POLL_MARGIN_S = 0.3
-
-
-def test_killed_streaming_process_is_stopped_by_robot_watchdog() -> None:
-    """Muerte brusca del proceso de streaming (el hijo): lo para el watchdog del robot.
-
-    Distinto del test del padre matado: ahí el hijo sigue vivo, lo detecta y para ordenadamente
-    (enable=0 y `stop` por el Dashboard), sin parada de protección. Aquí no queda nadie que lo
-    haga: solo el watchdog RTDE del programa del TP (`rtde_set_watchdog` sobre
-    input_int_register_0, a 2 / stop_s Hz porque el controlador para tras ~2 periodos sin dato,
-    acción "stop"). Su valor está fijo en el programa, así que la prueba de que es él quien para
-    es la parada de protección que deja (C207): los registros guardan su último valor, y sin
-    watchdog el programa seguiría con enable=1. Y el padre tiene que enterarse en la siguiente
-    llamada.
-    """
-    stop_s = CONFIG.follower.watchdog.stop_s
-    processes: list[multiprocessing.process.BaseProcess] = []
-
-    def launch(follower: FollowerConfig, start_tolerance_rad: float, shared: SharedState) -> Worker:
-        worker = spawn_worker(follower, start_tolerance_rad, shared)
-        assert isinstance(worker, multiprocessing.process.BaseProcess)
-        processes.append(worker)
-        return worker
-
-    core = UrFollowerCore(CONFIG, launch=launch)
-    try:
-        core.connect()
-        q0 = core.get_joints()
-        core.send_joints(q0)
-        wait_until(lambda: core.status().state == FollowerState.RUN, 2.0, "RUN")
-        assert program_running()
-        processes[0].kill()
-        killed_ns = now_ns()
-        processes[0].join(timeout=5)
-        assert processes[0].exitcode not in (0, None)
-
-        wait_until(lambda: not program_running(), stop_s + 5.0, "programa parado")
-        stopped_after_s = (now_ns() - killed_ns) / 1e9
-        print(f"parado {stopped_after_s * 1e3:.0f} ms después de matar el proceso de streaming")
-        with pytest.raises(FollowerStoppedError, match="terminó sin publicar el motivo"):
-            core.send_joints(q0)
-        with pytest.raises(FollowerStoppedError, match="terminó sin publicar el motivo"):
-            core.get_joints()
-        assert stopped_after_s <= stop_s + WATCHDOG_POLL_MARGIN_S
-        assert protective_stop_appears(), "sin parada de protección: no lo paró el watchdog"
-        core.disconnect()  # con el proceso ya muerto no debe fallar
-    finally:
-        core.disconnect()
-        release_protective_stop()

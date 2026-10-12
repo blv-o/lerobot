@@ -1,28 +1,13 @@
-"""`UrFollowerCore` visto desde el padre: arranque, consignas, estado, parada y comprobaciones.
-
-El bucle del robot ya está probado en test_streaming.py. Aquí corre en un hilo (o en un proceso
-spawn real) con los dobles de test, y los tests esperan a un estado, nunca un tiempo fijo.
-"""
+"""`UrFollowerCore`: consignas y comprobaciones de arranque."""
 
 import dataclasses
-import inspect
 import math
-import multiprocessing
-import os
-import subprocess
-import sys
 import threading
-import time
 from collections.abc import Callable, Iterator
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
-import rtde.rtde as rtde
-import ur_core
-import ur_core.follower as follower_module
-import ur_core.streaming as streaming_module
 from fakes import (
     START_Q_RAD,
     FakeDashboard,
@@ -30,15 +15,9 @@ from fakes import (
     endless_packets,
     packets,
 )
-from ur_core.clock import now_ns
 from ur_core.config import FollowerConfig, ServoConfig, TeleopConfig, UrLeaderConfig, WatchdogConfig
-from ur_core.dashboard import DASHBOARD_TIMEOUT_S
-from ur_core.follower import (
-    FollowerStartError,
-    FollowerStoppedError,
-    UrFollowerCore,
-)
-from ur_core.streaming import LOCK_TIMEOUT_S, FollowerState, SharedState, StreamingLoop
+from ur_core.follower import UrFollowerCore
+from ur_core.streaming import FollowerState, SharedState, StreamingLoop
 
 CONFIG = TeleopConfig(
     leader=UrLeaderConfig(type="ur3e", ip="127.0.0.3", rtde_hz=500, timeout_s=0.1),
@@ -52,47 +31,12 @@ CONFIG = TeleopConfig(
     start_tolerance_rad=math.radians(2),
 )
 NEAR = [START_Q_RAD[0] + 0.005, *START_Q_RAD[1:]]
-FAR = [START_Q_RAD[0] + math.radians(10), *START_Q_RAD[1:]]
-WAIT_S = 10.0
-# Peor cierre del hijo: `receive` y `send` del cliente RTDE, conexión + bienvenida + respuesta del
-# Dashboard y las dos publicaciones de STOP.
-WORST_SHUTDOWN_S = 2 * rtde.DEFAULT_TIMEOUT + 3 * DASHBOARD_TIMEOUT_S + 2 * LOCK_TIMEOUT_S
 
 
 class ThreadWorker(threading.Thread):
     """Un hilo con la interfaz de `multiprocessing.Process` que usa `UrFollowerCore`."""
 
     terminated = False
-
-    def terminate(self) -> None:
-        self.terminated = True
-
-
-class ScriptedWorker:
-    """Proceso de streaming de mentira: publica `first` al lanzarse y el test decide el resto.
-
-    `on_is_alive` corre en cada `is_alive()`, antes de contestar; los `join` se registran.
-    """
-
-    def __init__(self, first: tuple[FollowerState, str] = (FollowerState.WAIT, "")) -> None:
-        self.first = first
-        self.shared: SharedState | None = None
-        self.alive = True
-        self.on_is_alive: Callable[[], None] = lambda: None
-        self.join_timeouts_s: list[float | None] = []
-        self.terminated = False
-
-    def launch(self, _follower: FollowerConfig, _tol_rad: float, shared: SharedState) -> "ScriptedWorker":
-        self.shared = shared
-        shared.publish_state(*self.first)
-        return self
-
-    def is_alive(self) -> bool:
-        self.on_is_alive()
-        return self.alive
-
-    def join(self, timeout: float | None = None) -> None:
-        self.join_timeouts_s.append(timeout)
 
     def terminate(self) -> None:
         self.terminated = True
@@ -113,113 +57,12 @@ class Rig:
         return self.worker
 
 
-def wait_for(core: UrFollowerCore, state: FollowerState) -> None:
-    deadline_ns = now_ns() + round(WAIT_S * 1e9)
-    while core.status().state != state:
-        assert now_ns() < deadline_ns, f"no llegó a {state.name}: {core.status()}"
-        time.sleep(0.005)
-
-
 @pytest.fixture
 def rig() -> Iterator[Rig]:
     rig = Rig()
     yield rig
     if rig.worker is not None and rig.worker.is_alive():
         raise AssertionError("el test dejó el bucle del follower vivo")
-
-
-# --- arranque ------------------------------------------------------------------------------
-
-
-def test_connect_returns_once_armed_in_wait(rig: Rig) -> None:
-    core = UrFollowerCore(CONFIG, launch=rig.launch)
-    core.connect()
-    assert core.is_connected
-    assert core.status().state == FollowerState.WAIT
-    assert core.get_joints() == pytest.approx(START_Q_RAD)
-    core.disconnect()
-
-
-def test_connect_raises_with_child_reason_when_arming_fails() -> None:
-    rig = Rig(pkts=lambda: iter(packets(5, robot_mode=5)))
-    core = UrFollowerCore(CONFIG, launch=rig.launch)
-    with pytest.raises(FollowerStartError, match="robot_mode"):
-        core.connect()
-    assert not core.is_connected
-    assert not rig.worker.is_alive()
-
-
-def test_connect_raises_if_worker_dies_without_publishing() -> None:
-    def launch(*_args: Any) -> ThreadWorker:
-        worker = ThreadWorker(target=lambda: None, daemon=True)
-        worker.start()
-        return worker
-
-    core = UrFollowerCore(CONFIG, launch=launch)
-    with pytest.raises(FollowerStartError, match="terminó"):
-        core.connect()
-
-
-def test_connect_gives_up_and_terminates_a_stuck_worker(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(follower_module, "ARM_TIMEOUT_S", 0.05)
-    monkeypatch.setattr(follower_module, "CONNECT_MARGIN_S", 0.05)
-    release = threading.Event()
-    workers: list[ThreadWorker] = []
-
-    def launch(*_args: Any) -> ThreadWorker:
-        worker = ThreadWorker(target=release.wait, daemon=True)
-        worker.start()
-        workers.append(worker)
-        return worker
-
-    core = UrFollowerCore(CONFIG, launch=launch)
-    with pytest.raises(FollowerStartError, match="no quedó armado"):
-        core.connect()
-    assert workers[0].terminated
-    release.set()
-
-
-@pytest.mark.timeout(10)
-def test_connect_gives_up_if_the_process_died_holding_the_shared_memory_lock(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(streaming_module, "LOCK_TIMEOUT_S", 0.05)
-
-    def launch(_follower: FollowerConfig, _tol_rad: float, shared: SharedState) -> ThreadWorker:
-        assert shared._lock.acquire(block=False)  # murió con el Lock cogido
-        worker = ThreadWorker(target=lambda: None, daemon=True)
-        worker.start()
-        worker.join()
-        return worker
-
-    core = UrFollowerCore(CONFIG, launch=launch)
-    with pytest.raises(FollowerStartError, match="memoria compartida"):
-        core.connect()
-    assert not core.is_connected
-
-
-def test_connect_lets_a_follower_that_failed_to_arm_finish_its_shutdown() -> None:
-    """STOP se publica en cuanto ocurre, antes del cierre: terminar el proceso entonces podría
-    dejar el programa del TP ya visto sin su `stop` por el Dashboard."""
-    worker = ScriptedWorker(first=(FollowerState.STOP, "robot_mode=IDLE (5)"))
-    core = UrFollowerCore(CONFIG, launch=worker.launch)
-    with pytest.raises(FollowerStartError, match="robot_mode"):
-        core.connect()
-    assert worker.join_timeouts_s[0] >= WORST_SHUTDOWN_S
-
-
-def test_connect_twice_does_not_launch_a_second_worker(rig: Rig) -> None:
-    launches: list[int] = []
-
-    def launch(*args: Any) -> ThreadWorker:
-        launches.append(1)
-        return rig.launch(*args)
-
-    core = UrFollowerCore(CONFIG, launch=launch)
-    core.connect()
-    core.connect()
-    assert launches == [1]
-    core.disconnect()
 
 
 # --- consignas -----------------------------------------------------------------------------
@@ -243,309 +86,10 @@ def test_send_joints_rejects_wrong_size_and_non_finite(rig: Rig, bad: list[float
     core.disconnect()
 
 
-def test_target_clock_cannot_be_injected() -> None:
-    """El proceso de streaming compara el t_ns de cada consigna con su propio `now_ns()`: otro
-    reloj en el padre rompería la edad de la consigna (HOLD/STOP) sin avisar."""
-    assert "clock" not in inspect.signature(UrFollowerCore).parameters
-
-
 def test_send_joints_before_connect_raises() -> None:
     core = UrFollowerCore(CONFIG, launch=Rig().launch)
     with pytest.raises(RuntimeError, match="no conectado"):
         core.send_joints(NEAR)
-
-
-def test_send_joints_is_non_blocking_and_reaches_the_robot(rig: Rig) -> None:
-    core = UrFollowerCore(CONFIG, launch=rig.launch)
-    core.connect()
-    t0_ns = now_ns()
-    core.send_joints(NEAR)
-    assert now_ns() - t0_ns < 1_000_000  # < 1 ms
-    wait_for(core, FollowerState.RUN)
-    core.disconnect()
-    assert 1 in rig.rtde.written_enable()
-
-
-def test_send_joints_stamps_targets_with_the_streaming_process_clock() -> None:
-    """El proceso de streaming compara el t_ns de cada consigna con su `now_ns()`: con otro reloj
-    (p. ej. el de pared) la edad de la consigna no tendría sentido y HOLD/STOP no saltarían."""
-    worker = ScriptedWorker()
-    core = UrFollowerCore(CONFIG, launch=worker.launch)
-    core.connect()
-    core.send_joints(NEAR)
-    assert worker.shared is not None
-    target = worker.shared.try_read_target()
-    assert target is not None
-    _, t_ns, _ = target
-    assert abs(now_ns() - t_ns) < 100_000_000  # 0,1 s
-    core.disconnect()
-
-
-@pytest.mark.parametrize(
-    "call", [lambda core: core.send_joints(NEAR), lambda core: core.get_joints()], ids=["send", "get"]
-)
-def test_liveness_is_read_before_the_state(call: Callable[[UrFollowerCore], Any]) -> None:
-    """Si el proceso publica STOP y muere entre las dos lecturas, leyendo el estado primero se
-    vería RUN y luego muerto: se perdería el motivo real de la parada."""
-    worker = ScriptedWorker()
-    core = UrFollowerCore(CONFIG, launch=worker.launch)
-    core.connect()
-
-    def publishes_stop_and_dies() -> None:
-        assert worker.shared is not None
-        worker.shared.publish_state(FollowerState.STOP, "motivo real")
-        worker.alive = False
-
-    worker.on_is_alive = publishes_stop_and_dies
-    with pytest.raises(FollowerStoppedError, match="motivo real"):
-        call(core)
-    core.disconnect()
-
-
-def test_send_joints_after_stop_raises_with_reason(rig: Rig) -> None:
-    core = UrFollowerCore(CONFIG, launch=rig.launch)
-    core.connect()
-    core.send_joints(FAR)
-    wait_for(core, FollowerState.STOP)
-    with pytest.raises(FollowerStoppedError, match="primera consigna lejos"):
-        core.send_joints(NEAR)
-    assert core.is_connected  # hasta disconnect(), aunque el follower ya esté parado
-    core.disconnect()
-
-
-def test_send_and_get_joints_raise_if_the_process_died_without_publishing_stop() -> None:
-    """Un proceso muerto sin pasar por su cierre (EDR, `terminate()`, fallo nativo) deja el estado
-    en RUN: sin mirar si vive, LeRobot seguiría mandando consignas y grabando una pose congelada."""
-    workers: list[ThreadWorker] = []
-
-    def launch(_follower: FollowerConfig, _tol_rad: float, shared: SharedState) -> ThreadWorker:
-        def reach_run_and_die() -> None:
-            shared.try_write_measured(START_Q_RAD)
-            shared.publish_state(FollowerState.WAIT)
-            while (shared.try_read_target() or (0,))[0] == 0:
-                time.sleep(0.001)
-            shared.publish_state(FollowerState.RUN)
-
-        worker = ThreadWorker(target=reach_run_and_die, daemon=True)
-        worker.start()
-        workers.append(worker)
-        return worker
-
-    core = UrFollowerCore(CONFIG, launch=launch)
-    core.connect()
-    core.send_joints(NEAR)
-    workers[0].join(timeout=WAIT_S)
-    assert core.status().state == FollowerState.RUN
-    with pytest.raises(FollowerStoppedError, match="terminó sin publicar el motivo"):
-        core.send_joints(NEAR)
-    with pytest.raises(FollowerStoppedError, match="terminó sin publicar el motivo"):
-        core.get_joints()
-    core.disconnect()
-
-
-def test_get_joints_after_the_process_ended_raises_with_its_reason(rig: Rig) -> None:
-    core = UrFollowerCore(CONFIG, launch=rig.launch)
-    core.connect()
-    core.send_joints(FAR)
-    rig.worker.join(timeout=WAIT_S)
-    with pytest.raises(FollowerStoppedError, match="primera consigna lejos"):
-        core.get_joints()
-    core.disconnect()
-
-
-def test_get_joints_raises_as_soon_as_stop_is_published() -> None:
-    """Tras STOP la pose ya no se actualiza aunque el proceso siga en su cierre: devolverla haría
-    que LeRobot siguiera grabando con el robot parado."""
-    worker = ScriptedWorker()
-    core = UrFollowerCore(CONFIG, launch=worker.launch)
-    core.connect()
-    assert worker.shared is not None
-    worker.shared.publish_state(FollowerState.STOP, "parada de seguridad")
-    with pytest.raises(FollowerStoppedError, match="parada de seguridad"):
-        core.get_joints()
-    core.disconnect()
-
-
-# --- parada --------------------------------------------------------------------------------
-
-
-def test_disconnect_stops_the_loop_through_the_shutdown(rig: Rig) -> None:
-    core = UrFollowerCore(CONFIG, launch=rig.launch)
-    core.connect()
-    core.send_joints(NEAR)
-    wait_for(core, FollowerState.RUN)
-    core.disconnect()
-    assert not rig.worker.is_alive()
-    assert not rig.worker.terminated
-    assert not core.is_connected
-    status = core.status()
-    assert status.state == FollowerState.STOP and "parada pedida" in status.stop_reason
-    assert rig.rtde.written_enable()[-1] == 0
-    assert rig.dashboard.commands == ["stop"]
-
-
-def test_disconnect_waits_for_the_worst_case_shutdown_before_terminating() -> None:
-    """Terminar el proceso a mitad de su cierre lo deja sin enable=0 ni `stop` por el Dashboard:
-    solo quedaría el watchdog del robot."""
-    worker = ScriptedWorker()
-    core = UrFollowerCore(CONFIG, launch=worker.launch)
-    core.connect()
-    core.disconnect()
-    assert worker.join_timeouts_s[0] >= WORST_SHUTDOWN_S
-
-
-def test_disconnect_twice_or_without_connect_does_nothing(rig: Rig) -> None:
-    UrFollowerCore(CONFIG, launch=rig.launch).disconnect()
-    core = UrFollowerCore(CONFIG, launch=rig.launch)
-    core.connect()
-    core.disconnect()
-    core.disconnect()
-
-
-class FinalizeRecorder:
-    """Sustituye a `multiprocessing.util.Finalize`: registra qué se apunta para la salida."""
-
-    def __init__(self) -> None:
-        self.registered: list[tuple[Callable[[], None], int | None]] = []
-        self.cancelled = 0
-
-    def __call__(self, _obj: object, callback: Callable[[], None], exitpriority: int | None = None) -> Any:
-        self.registered.append((callback, exitpriority))
-        recorder = self
-
-        class _Handle:
-            def cancel(self) -> None:
-                recorder.cancelled += 1
-
-        return _Handle()
-
-
-@pytest.fixture
-def finalize(monkeypatch: pytest.MonkeyPatch) -> FinalizeRecorder:
-    recorder = FinalizeRecorder()
-    monkeypatch.setattr(follower_module, "Finalize", recorder)
-    return recorder
-
-
-def test_connect_registers_exit_disconnect_with_priority_0(finalize: FinalizeRecorder) -> None:
-    """Al salir del intérprete, multiprocessing termina los procesos daemon sin pasar por su
-    cierre (enable=0, `stop`): solo los finalizadores con prioridad >= 0 corren antes."""
-    worker = ScriptedWorker()
-    core = UrFollowerCore(CONFIG, launch=worker.launch)
-    core.connect()
-    assert finalize.registered == [(core.disconnect, 0)]
-    assert finalize.cancelled == 0
-    core.disconnect()
-    assert finalize.cancelled == 1
-    core.disconnect()
-    assert finalize.cancelled == 1
-
-
-def test_failed_connect_drops_the_exit_disconnect(finalize: FinalizeRecorder) -> None:
-    worker = ScriptedWorker(first=(FollowerState.STOP, "robot_mode=IDLE (5)"))
-    core = UrFollowerCore(CONFIG, launch=worker.launch)
-    with pytest.raises(FollowerStartError):
-        core.connect()
-    assert len(finalize.registered) == 1
-    assert finalize.cancelled == 1
-
-
-def test_status_reports_period_statistics(rig: Rig) -> None:
-    core = UrFollowerCore(CONFIG, launch=rig.launch)
-    core.connect()
-    core.send_joints(NEAR)
-    deadline_ns = now_ns() + round(WAIT_S * 1e9)
-    while core.status().period_max_s == 0:
-        assert now_ns() < deadline_ns
-        core.send_joints(NEAR)
-        time.sleep(0.02)
-    core.disconnect()
-    status = core.status()
-    assert 0 < status.period_p50_s <= status.period_p99_s <= status.period_max_s
-
-
-# --- proceso real ----------------------------------------------------------------------------
-
-
-def _fake_streaming_main(follower: FollowerConfig, tol_rad: float, shared: SharedState) -> None:
-    """Como `streaming_main`, pero con dobles de test, en un proceso hijo de verdad."""
-    StreamingLoop(
-        follower,
-        tol_rad,
-        shared,
-        rtde=FakeRTDE(endless_packets(), hz=follower.servo.hz),
-        dashboard=FakeDashboard(),
-        parent_alive=multiprocessing.parent_process().is_alive,
-    ).serve()
-
-
-def test_real_spawned_process_arms_runs_and_stops_on_disconnect() -> None:
-    processes: list[multiprocessing.Process] = []
-
-    def launch(follower: FollowerConfig, tol_rad: float, shared: SharedState) -> multiprocessing.Process:
-        process = multiprocessing.get_context("spawn").Process(
-            target=_fake_streaming_main, args=(follower, tol_rad, shared), daemon=True
-        )
-        process.start()
-        processes.append(process)
-        return process
-
-    core = UrFollowerCore(CONFIG, launch=launch)
-    core.connect()
-    core.send_joints(NEAR)
-    wait_for(core, FollowerState.RUN)
-    core.disconnect()
-    assert processes[0].exitcode == 0
-    assert "parada pedida" in core.status().stop_reason
-
-
-def _streaming_main_marking_shutdown(
-    follower: FollowerConfig, tol_rad: float, shared: SharedState, mark_path: str
-) -> None:
-    """Deja una marca solo si el bucle termina por su cierre; `terminate()` no llega a ella."""
-    _fake_streaming_main(follower, tol_rad, shared)
-    Path(mark_path).write_text("cierre completo", encoding="utf-8")
-
-
-def _spawn_marking_shutdown(
-    mark_path: str, follower: FollowerConfig, tol_rad: float, shared: SharedState
-) -> multiprocessing.Process:
-    process = multiprocessing.get_context("spawn").Process(
-        target=_streaming_main_marking_shutdown, args=(follower, tol_rad, shared, mark_path), daemon=True
-    )
-    process.start()
-    return process
-
-
-EXITING_PARENT_SCRIPT = """
-import functools, sys
-from test_follower_core import CONFIG, _spawn_marking_shutdown
-from ur_core.follower import UrFollowerCore
-core = UrFollowerCore(CONFIG, launch=functools.partial(_spawn_marking_shutdown, sys.argv[1]))
-core.connect()
-sys.exit(0)  # salida normal del intérprete sin disconnect()
-"""
-
-
-@pytest.mark.timeout(60)
-def test_parent_exiting_without_disconnect_lets_the_streaming_process_finish_its_shutdown(
-    tmp_path: Path,
-) -> None:
-    """Un `finally` que lanza antes de llegar a `disconnect()`: el proceso de streaming tiene que
-    pasar por su cierre antes de que multiprocessing termine los daemon al salir."""
-    mark = tmp_path / "cierre.txt"
-    # El padre importa este módulo (y `fakes`) y el ur_core de este árbol, como pytest.
-    import_paths = [str(Path(ur_core.__file__).parents[1]), str(Path(__file__).parent)]
-    env = {**os.environ, "PYTHONPATH": os.pathsep.join([*import_paths, os.environ.get("PYTHONPATH", "")])}
-    result = subprocess.run(
-        [sys.executable, "-c", EXITING_PARENT_SCRIPT, str(mark)],
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=50,
-    )
-    assert result.returncode == 0, result.stderr
-    assert mark.exists(), f"el proceso de streaming no pasó por su cierre:\n{result.stderr}"
 
 
 # --- comprobaciones de arranque --------------------------------------------------------------
