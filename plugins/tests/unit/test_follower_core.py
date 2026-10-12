@@ -182,6 +182,16 @@ def test_rtde_setup_failures_give_a_readable_start_error_and_close_the_socket(
     assert not rig.rtde.connected  # el cliente oficial deja el socket abierto si falla la negociación
 
 
+def test_a_failure_to_close_does_not_hide_the_start_error(caplog: pytest.LogCaptureFixture) -> None:
+    """`sock.close` del cliente oficial puede lanzar OSError: el operador tiene que ver por qué no
+    arrancó, no el fallo al cerrar."""
+    rig = Rig(packets(5, robot_mode=5), fail=("disconnect",))
+    with pytest.raises(FollowerStartError, match="robot_mode"):
+        rig.core.connect()
+    assert not rig.core.is_connected
+    assert "fallo al cerrar el socket" in caplog.text
+
+
 def test_our_own_attribute_error_during_setup_is_not_blamed_on_the_robot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -428,6 +438,18 @@ def test_disconnect_with_a_broken_socket_logs_it_and_still_closes(caplog: pytest
     rig.core.disconnect()
     assert "enable=0" in caplog.text
     assert not rig.rtde.connected and not rig.core.is_connected
+
+
+def test_disconnect_with_a_socket_that_fails_to_close_logs_it_and_does_not_raise(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`sock.close` del cliente oficial puede lanzar OSError; en el `finally` de LeRobot eso
+    impediría cerrar el leader y las cámaras."""
+    rig = armed()
+    rig.rtde._fail.add("disconnect")
+    rig.core.disconnect()
+    assert not rig.core.is_connected
+    assert "fallo al cerrar el socket" in caplog.text
 
 
 # --- observabilidad ------------------------------------------------------------------------
