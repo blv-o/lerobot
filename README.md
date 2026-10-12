@@ -54,7 +54,6 @@ Guía de teleoperación (preparar los robots, lanzar, parar): [`plugins/README.m
 python -m pip install -e ".[test]"   # una vez
 pytest plugins/tests                 # sin URSim ni hardware
 pytest plugins/tests -m ursim        # con los URSim levantados (ver plugins/README.md)
-pytest plugins/tests -m timing       # temporización del follower contra URSim
 pytest tests                         # suite original de LeRobot
 ```
 
