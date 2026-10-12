@@ -88,7 +88,7 @@ class FollowerStoppedError(RuntimeError):
 
 
 class _ConnectionLostError(Exception):
-    pass
+    """Interna: al armar es un fallo de arranque, en teleoperación una parada y en `disconnect` se registra."""
 
 
 def _named(table: dict[int, str], value: int) -> str:

@@ -1,7 +1,7 @@
 """El reloj de ur_core resuelve muy por debajo de un ciclo de servo (8 ms a 125 Hz, 2 ms a 500 Hz).
 
 En Python 3.12 sobre Windows, `time.monotonic_ns()` usa GetTickCount64 y avanza a saltos de
-15,6 ms: la interpolación iría a escalones y el periodo medido del bucle no significaría nada.
+15,6 ms: las marcas `t_ns` del log y la edad del último paquete RTDE no significarían nada.
 """
 
 from ur_core.clock import now_ns
