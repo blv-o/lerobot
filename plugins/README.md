@@ -16,6 +16,8 @@ docker compose -f plugins/ursim/docker-compose.yml stop      # parar sin borrar 
 Con Docker Desktop los puertos aceptan conexiones antes de que URSim arranque: por eso la comprobación
 pide la versión del controlador por RTDE.
 
+URSim del follower ejecuta el `plugins/tp/follower_control.script` del checkout principal (el compose lo monta de ahí, ver `plugins/ursim/docker-compose.yml`): es el script de la rama activa en ese checkout. El `load` del Dashboard relee el archivo.
+
 ## 2. Preparar los robots (a mano, en PolyScope)
 
 El código nunca enciende, suelta frenos ni cambia de modo. Abrir el PolyScope de cada uno:
@@ -66,11 +68,15 @@ Copy-Item plugins\configs\ur_config.yaml mi_ur_config.yaml
 ## 5. Parar
 
 - **Ctrl+C**: parada limpia. El programa del TP termina: otra vez **Play** antes de relanzar.
-- Cerrar la consola o **Ctrl+Break**: el robot para solo (~0,5 s) y queda en parada de protección. Desbloquearla en el TP y **Play**.
+- Si el PC muere, se cuelga o se cierra la consola sin `disconnect()` (también **Ctrl+Break**):
+  - El robot se queda quieto en la última consigna, con el programa en Play.
+  - Se para con **Stop** en el TP.
+  - Antes de relanzar: **Stop** y **Play** en el TP.
 
 ## Problemas frecuentes
 
 - «el programa del follower no está en marcha: dale a Play en el TP» → **Play** en el follower.
+- «el programa del follower no está en ejecución» al empezar, tras una sesión cortada sin `disconnect()` → **Stop** y **Play** en el TP.
 - «fuera de tolerancia» → llevar ese robot a la posición inicial desde **Move** y contestar `yes`.
 - Tests `ursim` con «Failed to execute: play» → el follower está apagado o en Local (sección 2).
 - `lerobot-calibrate`: no hay nada que calibrar; contestar `no`.
