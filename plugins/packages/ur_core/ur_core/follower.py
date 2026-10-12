@@ -156,8 +156,7 @@ class UrFollowerCore:
             self._arm()
         except BaseException:
             # El cliente oficial deja el socket abierto si falla la negociación.
-            self._rtde.disconnect()
-            self._rtde = None
+            self._close()
             raise
         log.info("follower: conectado y armado t_ns=%d", self._clock())
 
@@ -380,7 +379,19 @@ class UrFollowerCore:
         except _ConnectionLostError as exc:
             log.error("follower: no se pudo escribir enable=0 (Stop en el TP): %s", exc)
         finally:
-            self._rtde.disconnect()
+            self._close()
+
+    def _close(self) -> None:
+        """Cierra RTDE y olvida la conexión pase lo que pase.
+
+        `sock.close` del cliente oficial puede lanzar OSError: se registra y no se propaga, para
+        no tapar el error de arranque ni impedir que LeRobot cierre el leader y las cámaras.
+        """
+        try:
+            self._connection().disconnect()
+        except OSError:
+            log.exception("follower: fallo al cerrar la conexión RTDE")
+        finally:
             self._rtde = None
 
     def _connection(self) -> RtdeConnection:
