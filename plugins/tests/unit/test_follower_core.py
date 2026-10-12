@@ -368,7 +368,8 @@ def test_closed_connection_is_a_lost_connection() -> None:
 def test_no_new_packet_for_stale_time_is_a_lost_connection() -> None:
     """Cable caído sin cierre: la conexión sigue abierta pero no llega nada."""
     stale_s = follower_module.STALE_S
-    rig = running([None] * 300)
+    rig = armed([*packets(ARM_PACKETS), *[None] * 300])  # el último paquete llega al armar
+    rig.core.send_joints(NEAR)
     rig.tick(0.9 * stale_s)
     rig.core.get_joints()
     rig.tick(0.2 * stale_s)
