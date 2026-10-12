@@ -1,4 +1,4 @@
-"""Dobles de test del follower UR: RTDE, Dashboard y reloj.
+"""Dobles de test de los robots UR: RTDE y reloj.
 
 Los paquetes RTDE son dicts con los campos de la receta de salida; así la misma `FakeRTDE`
 sirve para paquetes escritos a mano y para trazas grabadas en URSim.
@@ -72,6 +72,11 @@ class FakeRTDE:
     - `receive()` entrega el siguiente paquete (un dict, o `None` = timeout del cliente real).
       Con `clock` avanza ese reloj `1/hz`; sin él, duerme `1/hz` de verdad (tests con hilos).
       Al acabarse los paquetes lanza `RTDEException`, como el cliente real al perder la conexión.
+    - `receive_buffered()` entrega, uno por llamada, los paquetes que ya han llegado: el paquete
+      `k` llega `(k + 1)/hz` después de `send_start` (con `clock`, o con `now_ns()` sin él), y
+      `None` cuando no queda ninguno. Una entrada `None` de la lista es un hueco: en ese periodo
+      no llega nada. Al acabarse los paquetes lanza `RTDEException` una vez y desde entonces
+      devuelve `None` con `is_connected()` falso, como el cliente real al perder la conexión.
     - `actions[k]` se ejecuta justo antes de entregar el paquete `k` (0 = el primero).
     - `fail` simula los fallos que el cliente real devuelve como valor, no como excepción:
       `send_input_setup` → `None`, `send_output_setup`/`send_start` → `False`.
@@ -103,6 +108,7 @@ class FakeRTDE:
         self._fail = set(fail)
         self._input_names: dict[int, list[str]] = {}
         self.received = 0
+        self._start_ns = 0
         self.connected = False
         self.started = False
         self.output_setup: tuple[list[str], list[str], float] | None = None
@@ -153,6 +159,7 @@ class FakeRTDE:
         if "send_start" in self._fail:
             return False
         self.started = True
+        self._start_ns = self._now_ns()
         return True
 
     def send_pause(self) -> bool:
@@ -168,27 +175,44 @@ class FakeRTDE:
         for name, value in fields.items():
             if value is None:  # como `serialize.DataObject.pack` del cliente real
                 raise ValueError("Uninitialized parameter: " + name)
-        t_ns = self._clock() if self._clock else now_ns()
-        self.sent.append((t_ns, fields))
+        self.sent.append((self._now_ns(), fields))
         return True
 
     def receive(self) -> SimpleNamespace | None:
         if not self.started:
             raise RTDEException("Cannot receive when RTDE synchronization is inactive")
-        action = self._actions.get(self.received)
-        if action is not None:
-            action()
-        self.received += 1
         if self._clock:
             self._clock.advance_s(self._period_s)
         else:
             time.sleep(self._period_s)
+        pkt = self._next_packet()
+        return None if pkt is None else SimpleNamespace(**pkt)
+
+    def receive_buffered(
+        self, binary: bool = False, buffer_limit: int | None = None
+    ) -> SimpleNamespace | None:
+        while self.connected and self._arrival_ns(self.received) <= self._now_ns():
+            pkt = self._next_packet()
+            if pkt is not None:
+                return SimpleNamespace(**pkt)
+        return None
+
+    def _next_packet(self) -> dict[str, Any] | None:
+        action = self._actions.get(self.received)
+        if action is not None:
+            action()
+        self.received += 1
         try:
-            pkt = next(self._packets)
+            return next(self._packets)
         except StopIteration:
             self.connected = False
             raise RTDEException(" _recv() Connection lost ") from None
-        return None if pkt is None else SimpleNamespace(**pkt)
+
+    def _arrival_ns(self, index: int) -> int:
+        return self._start_ns + round((index + 1) * self._period_s * 1e9)
+
+    def _now_ns(self) -> int:
+        return self._clock() if self._clock else now_ns()
 
     def _raise_if_setup_times_out(self) -> None:
         if "setup_timeout" in self._fail:
@@ -206,40 +230,3 @@ class FakeRTDE:
 
     def written_enable(self) -> list[int]:
         return [fields["input_int_register_0"] for _, fields in self.sent if "input_int_register_0" in fields]
-
-
-class FakeDashboard:
-    """Dashboard (29999) con respuestas preparadas; guarda los comandos recibidos.
-
-    Como `DashboardClient`, `connect()` no hace nada si ya hay conexión; `connections` cuenta las
-    que se abren de verdad. `stop` contesta "Stopped", como el Dashboard de UR, salvo otra respuesta.
-    `fail`: `connect` → `ConnectionRefusedError`, `send` → `OSError` y `close` → `OSError` (lo
-    lanza `sock.close` del cliente real).
-    """
-
-    def __init__(self, responses: dict[str, str] | None = None, fail: Iterable[str] = ()) -> None:
-        self._responses = {"stop": "Stopped", **(responses or {})}
-        self._fail = set(fail)
-        self.commands: list[str] = []
-        self.connected = False
-        self.connections = 0
-
-    def connect(self) -> None:
-        if self.connected:
-            return
-        if "connect" in self._fail:
-            raise ConnectionRefusedError("FakeDashboard: conexión rechazada")
-        self.connected = True
-        self.connections += 1
-
-    def send(self, command: str) -> str:
-        if "send" in self._fail:
-            raise OSError("FakeDashboard: fallo al enviar")
-        assert self.connected, "send() sin connect()"
-        self.commands.append(command)
-        return self._responses.get(command, "")
-
-    def close(self) -> None:
-        if "close" in self._fail:
-            raise OSError("FakeDashboard: fallo al cerrar")
-        self.connected = False

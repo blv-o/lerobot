@@ -27,12 +27,6 @@ BASE: dict[str, Any] = {
     "follower": {
         "type": "ur3e",
         "ip": {"sim": FOLLOWER_SIM_IP, "real": FOLLOWER_REAL_IP},
-        "servo": {
-            "hz": 125,
-            "max_joint_speed_deg_s": 60,
-            "target_period_ms": 33,
-        },
-        "watchdog": {"hold_ms": 100, "stop_ms": 500},
     },
     "start_pose_deg": [0, -90, 90, -90, -90, 0],
     "start_tolerance_deg": 2,
@@ -113,8 +107,8 @@ def test_plain_field_has_same_value_in_both_profiles(tmp_path: Path, profile: st
 def test_sim_real_form_works_in_nested_fields(tmp_path: Path) -> None:
     data = base()
     data["profile"] = "real"
-    data["follower"]["servo"]["hz"] = {"sim": 125, "real": 500}
-    assert load(tmp_path, data).follower.servo.hz == 500
+    data["leader"]["rtde_hz"] = {"sim": 125, "real": 500}
+    assert load(tmp_path, data).leader.rtde_hz == 500
 
 
 def test_values_are_converted_to_radians_and_seconds(tmp_path: Path) -> None:
@@ -125,18 +119,13 @@ def test_values_are_converted_to_radians_and_seconds(tmp_path: Path) -> None:
     assert config.start_tolerance_rad == pytest.approx(math.radians(2))
     assert config.leader.rtde_hz == 500
     assert config.leader.timeout_s == pytest.approx(0.1)
-    assert config.follower.servo.hz == 125
-    assert config.follower.servo.max_joint_speed_rad_s == pytest.approx(math.radians(60))
-    assert config.follower.servo.target_period_s == pytest.approx(0.033)
-    assert config.follower.watchdog.hold_s == pytest.approx(0.1)
-    assert config.follower.watchdog.stop_s == pytest.approx(0.5)
 
 
 def test_config_is_immutable(tmp_path: Path) -> None:
     config = load(tmp_path, base())
     assert isinstance(config.start_pose_rad, tuple)
     with pytest.raises(dataclasses.FrozenInstanceError):
-        config.follower.servo.hz = 500  # type: ignore[misc]
+        config.follower.ip = "10.0.0.5"  # type: ignore[misc]
     with pytest.raises(dataclasses.FrozenInstanceError):
         config.leader = config.leader  # type: ignore[misc]
 
@@ -290,6 +279,19 @@ def test_unknown_key_is_rejected(tmp_path: Path, dotted: str, value: Any) -> Non
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, data)
     assert exc.value.field == dotted
+
+
+@pytest.mark.parametrize("section", ["servo", "watchdog"])
+def test_motion_settings_are_rejected_because_they_live_in_the_robot_program(
+    tmp_path: Path, section: str
+) -> None:
+    """Velocidad, periodo y watchdog los fija el programa del TP: en el YAML no harían nada."""
+    data = base()
+    data["follower"][section] = {"hz": 125}
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, data)
+    assert exc.value.field == f"follower.{section}"
+    assert exc.value.reason == "clave desconocida"
 
 
 @pytest.mark.parametrize(

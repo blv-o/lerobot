@@ -14,26 +14,13 @@ from typing import Any
 import pytest
 from fakes import START_Q_RAD, FakeRTDE, endless_packets, packet, packets
 from ur_core.clock import now_ns
-from ur_core.config import (
-    ConfigError,
-    FollowerConfig,
-    LowCostLeaderConfig,
-    ServoConfig,
-    TeleopConfig,
-    UrLeaderConfig,
-    WatchdogConfig,
-)
+from ur_core.config import ConfigError, FollowerConfig, LowCostLeaderConfig, TeleopConfig, UrLeaderConfig
 from ur_core.leader import LeaderReadError, UrLeaderCore
 
 LEADER = UrLeaderConfig(type="ur3e", ip="127.0.0.3", rtde_hz=500, timeout_s=0.1)
 LEADER_CONFIG = TeleopConfig(
     leader=LEADER,
-    follower=FollowerConfig(
-        type="ur3e",
-        ip="127.0.0.2",
-        servo=ServoConfig(hz=125, max_joint_speed_rad_s=math.radians(60), target_period_s=0.033),
-        watchdog=WatchdogConfig(hold_s=0.1, stop_s=0.5),
-    ),
+    follower=FollowerConfig(type="ur3e", ip="127.0.0.2"),
     start_pose_rad=tuple(START_Q_RAD),
     start_tolerance_rad=math.radians(2),
 )

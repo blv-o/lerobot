@@ -8,7 +8,7 @@ import inspect
 from typing import Any
 
 import pytest
-from fakes import FakeClock, FakeRTDE, packets
+from fakes import START_Q_RAD, FakeClock, FakeRTDE, packet, packets
 from rtde.rtde import RTDE, ConnectionState, RTDEException
 
 RTDE_METHODS = [
@@ -21,6 +21,7 @@ RTDE_METHODS = [
     "send_pause",
     "send",
     "receive",
+    "receive_buffered",
 ]
 
 
@@ -50,6 +51,40 @@ def test_fake_rtde_advances_clock_and_raises_like_real_client_when_exhausted() -
     con.receive()
     with pytest.raises(RTDEException):
         con.receive()
+
+
+def heartbeats(con: FakeRTDE) -> list[int]:
+    """Vacía lo llegado, como el follower, y da el heartbeat de cada paquete."""
+    out = []
+    while (pkt := con.receive_buffered()) is not None:
+        out.append(pkt.output_int_register_0)
+    return out
+
+
+def test_fake_rtde_receive_buffered_delivers_only_what_has_arrived() -> None:
+    clock = FakeClock()
+    con = FakeRTDE([*packets(2), None, *packets(2)], clock=clock, hz=125)
+    con.connect()
+    con.send_start()
+    assert heartbeats(con) == []
+    clock.advance_s(0.020)  # llegan los paquetes de 8 y 16 ms
+    assert heartbeats(con) == [0, 1]
+    clock.advance_s(0.016)  # a los 24 ms no llega nada (hueco); a los 32 ms, el siguiente
+    assert heartbeats(con) == [0]
+
+
+def test_fake_rtde_receive_buffered_raises_once_when_the_connection_is_lost() -> None:
+    """El cliente real lanza al ver la conexión cerrada y desde entonces devuelve None."""
+    clock = FakeClock()
+    con = FakeRTDE([packet(START_Q_RAD, heartbeat=5)], clock=clock, hz=125)
+    con.connect()
+    con.send_start()
+    clock.advance_s(1.0)
+    assert con.receive_buffered().output_int_register_0 == 5
+    with pytest.raises(RTDEException):
+        con.receive_buffered()
+    assert con.receive_buffered() is None
+    assert not con.is_connected()
 
 
 def test_fake_rtde_runs_actions_before_packet_index() -> None:

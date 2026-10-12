@@ -1,4 +1,4 @@
-"""Lo que comparten los tests `ursim` y `timing`: el URSim follower y la carga de vídeo.
+"""Lo que comparten los tests `ursim`: el URSim follower, sus trazas y la carga de vídeo.
 
 `follower_program_playing` no es autouse (aquí se aplicaría también a los tests sin URSim): cada
 archivo que lo necesita lo pide con `pytest.mark.usefixtures`. Las funciones se importan con
@@ -7,6 +7,7 @@ archivo que lo necesita lo pide con `pytest.mark.usefixtures`. Las funciones se 
 
 import json
 import os
+import socket
 import threading
 import time
 from pathlib import Path
@@ -16,30 +17,32 @@ import pytest
 import rtde.rtde as rtde
 from ur_core import load_config
 from ur_core.clock import now_ns
-from ur_core.dashboard import DashboardClient
-from ur_core.streaming import RTDE_PORT, RUNTIME_PLAYING
+from ur_core.follower import READ_HZ, RUNTIME_PLAYING
+from ur_core.startup import RTDE_PORT
 
 PLUGINS = Path(__file__).parents[1]
 CONFIG_PATH = PLUGINS / "configs" / "ur_config.yaml"
 CONFIG = load_config(CONFIG_PATH)
 FOLLOWER_IP = CONFIG.follower.ip
+DASHBOARD_PORT = 29999
 
 
 def dashboard(command: str) -> str:
-    client = DashboardClient(FOLLOWER_IP)
-    client.connect()
-    try:
-        return client.send(command)
-    finally:
-        client.close()
+    """Un comando al Dashboard del URSim follower. Solo de test: el follower nunca lo usa."""
+    with socket.create_connection((FOLLOWER_IP, DASHBOARD_PORT), timeout=5) as sock:
+        stream = sock.makefile("rw", encoding="utf-8", newline="\n")
+        stream.readline()  # bienvenida
+        stream.write(command + "\n")
+        stream.flush()
+        return stream.readline().strip()
 
 
 def runtime_state() -> int:
-    """Estado del programa por RTDE: el mismo dato con el que el bucle decide si sigue en marcha."""
+    """Estado del programa por RTDE: el mismo dato con el que el follower decide si sigue en marcha."""
     con = rtde.RTDE(FOLLOWER_IP, RTDE_PORT)
     con.connect()
     try:
-        assert con.send_output_setup(["runtime_state"], ["UINT32"], frequency=CONFIG.follower.servo.hz)
+        assert con.send_output_setup(["runtime_state"], ["UINT32"], frequency=READ_HZ)
         assert con.send_start()
         return con.receive().runtime_state
     finally:
@@ -60,32 +63,11 @@ def wait_until(predicate: Any, timeout_s: float, what: str) -> None:
 # El controlador rechaza desbloquear una parada de protección antes de 5 s desde que ocurrió.
 PROTECTIVE_STOP_UNLOCK_DELAY_S = 5.0
 PROTECTIVE_STOP_RELEASE_TIMEOUT_S = 10.0
-# Medido en URSim: el Dashboard informa de la parada 0,25-0,5 s después de que pare el programa.
-PROTECTIVE_STOP_APPEAR_TIMEOUT_S = 2.0
-
-
-def protective_stop_appears() -> bool:
-    """Espera a que el Dashboard informe de la parada; False si no llega (el test falló antes)."""
-    deadline_ns = now_ns() + round(PROTECTIVE_STOP_APPEAR_TIMEOUT_S * 1e9)
-    while now_ns() < deadline_ns:
-        if dashboard("safetystatus") == "Safetystatus: PROTECTIVE_STOP":
-            return True
-        time.sleep(0.1)
-    return False
-
-
-def release_protective_stop() -> None:
-    """Devuelve el URSim a NORMAL si quedó en parada de protección.
-
-    Cuando salta el watchdog RTDE, el controlador da C207 "Fieldbus input disconnected" y entra
-    en parada de protección; sin desbloquearla, los tests siguientes no pueden arrancar el
-    follower. En un robot real la desbloquea el operario desde el teach pendant.
-    """
-    if protective_stop_appears():
-        unlock_protective_stop()
 
 
 def unlock_protective_stop() -> None:
+    """Devuelve a NORMAL un URSim que un test anterior dejó en parada de protección. En un robot
+    real la desbloquea el operario desde el TP."""
     # La parada ocurrió antes de verla: esperar desde ahora garantiza los 5 s.
     time.sleep(PROTECTIVE_STOP_UNLOCK_DELAY_S)
     reply = dashboard("unlock protective stop")
@@ -124,10 +106,13 @@ class TraceRecorder:
             if pkt is not None:
                 self.packets.append({name: _plain(getattr(pkt, name)) for name in self._names})
 
-    def save(self, name: str) -> None:
+    def stop(self) -> None:
         self._stop.set()
         self._thread.join(timeout=5)
         self._con.disconnect()
+
+    def save(self, name: str) -> None:
+        self.stop()
         if os.environ.get("UR_RECORD_TRACES") == "1":
             TRACES.mkdir(exist_ok=True)
             (TRACES / f"{name}.json").write_text(json.dumps(self.packets), encoding="utf-8")
@@ -148,7 +133,7 @@ def follower_program_playing() -> None:
     """Pone en marcha el programa del follower antes de cada test, como el operador con Play.
 
     Solo de test (el código del follower nunca lo hace) y con URSim en modo Remote. Siempre desde
-    cero: una instancia que quedara de otro test podría tener ya el watchdog activo.
+    cero: una instancia que quedara de otro test podría estar ya habilitada.
     """
     if dashboard("safetystatus") == "Safetystatus: PROTECTIVE_STOP":
         unlock_protective_stop()

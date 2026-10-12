@@ -2,7 +2,7 @@
 
 Mismo proceso que la CLI: adaptadores `UrLeader` y `UrFollower` con la confirmación respondida
 por `ask`, y el bucle de `teleop_loop` (observación, acción del leader, envío al follower) a
-`--fps` = 1000 / `target_period_ms`. Con la carga de vídeo de los tests `timing` en marcha, porque
+`--fps=30` (el tramo de interpolación del programa del TP). Con carga de vídeo en marcha, porque
 el hilo de lectura del leader comparte el GIL con la codificación.
 
 Solo para este test, el URSim leader se mueve con un URScript subido por 30002 (en un robot real
@@ -24,15 +24,16 @@ from conftest import CONFIG, CONFIG_PATH, dashboard, encode_video, wait_until
 from lerobot_robot_ur_follower import UrFollower, UrFollowerConfig
 from lerobot_teleoperator_ur_leader import UrLeader, UrLeaderConfig
 from test_follower_ursim import DELAY_LIMIT_S, MAX_SEARCHED_DELAY_MS, SHAPE_RMS_LIMIT_RAD
-from ur_core import JOINT_NAMES, FollowerState
+from ur_core import JOINT_NAMES
 from ur_core.clock import now_ns
-from ur_core.streaming import RTDE_PORT, RUNTIME_PLAYING
+from ur_core.follower import RUNTIME_PLAYING
+from ur_core.startup import RTDE_PORT
 
 pytestmark = [pytest.mark.ursim, pytest.mark.usefixtures("follower_program_playing")]
 
 LEADER_IP = CONFIG.leader.ip
 SECONDARY_PORT = 30002
-FPS = round(1 / CONFIG.follower.servo.target_period_s)  # --fps = 1000 / target_period_ms
+FPS = 30  # --fps de LeRobot: casa con TARGET_PERIOD_S del programa del TP
 TELEOP_S = 60.0
 SETTLE_S = 3.0  # el follower sigue al leader de vuelta a la posición inicial
 LEADER_AMPLITUDE_RAD = 0.1
@@ -183,7 +184,6 @@ def test_teleop_leader_to_follower_for_60_s_with_video_load(tmp_path: Path) -> N
             video_fps = (frames_encoded[0] - frames0) / ((now_ns() - t0_ns) / 1e9)
             send_leader_script(home_script())
             teleop_for(leader, follower, SETTLE_S)
-        status = follower.core.status()
     finally:
         leader.disconnect()
         follower.disconnect()
@@ -201,10 +201,7 @@ def test_teleop_leader_to_follower_for_60_s_with_video_load(tmp_path: Path) -> N
         f"(sin descontarlo: {shape_rms_rad(samples, 0.0):.4f} rad); recorrido del leader {leader_ptp_rad:.3f} rad"
         f"\nperiodo del bucle p50/p99/máx = {np.percentile(periods_ms, 50):.2f}/"
         f"{np.percentile(periods_ms, 99):.2f}/{periods_ms.max():.2f} ms"
-        f"\nperiodo del follower p50/p99/máx = {status.period_p50_s * 1e3:.2f}/"
-        f"{status.period_p99_s * 1e3:.2f}/{status.period_max_s * 1e3:.2f} ms"
     )
-    assert status.state != FollowerState.STOP, status.stop_reason
     assert dashboard("safetystatus") == "Safetystatus: NORMAL"
     assert video_fps >= VIDEO_MIN_FPS, "sin carga de vídeo real el test no prueba nada"
     assert leader_ptp_rad >= LEADER_AMPLITUDE_RAD, "el leader no se movió: el seguimiento no prueba nada"

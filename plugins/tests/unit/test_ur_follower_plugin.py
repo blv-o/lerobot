@@ -1,8 +1,7 @@
 """Adaptador `UrFollower(Robot)`: solo traduce entre LeRobot y `UrFollowerCore`.
 
 Casi todos los tests sustituyen el núcleo por `FakeCore`, que registra el orden de las llamadas;
-el último usa el núcleo real con el bucle del follower en un hilo, para que el doble no se aleje
-de la API de verdad.
+el último usa el núcleo real con `FakeRTDE`, para que el doble no se aleje de la API de verdad.
 """
 
 import logging
@@ -13,9 +12,8 @@ from typing import Any
 
 import numpy as np
 import pytest
-from fakes import START_Q_RAD, FakeRTDE, packets
+from fakes import START_Q_RAD, FakeClock, FakeRTDE, endless_packets, packets
 from lerobot_robot_ur_follower import UrFollower, UrFollowerConfig
-from test_follower_core import Rig
 from ur_core import JOINT_NAMES, ConfigError, FollowerStoppedError, UrFollowerCore, load_config
 
 from lerobot.cameras.opencv import OpenCVCameraConfig
@@ -230,10 +228,13 @@ def test_disconnect_closes_the_core_and_does_not_raise_when_a_camera_fails(
 
 
 def test_with_the_real_core_arms_moves_reads_and_stops(tmp_path: Path) -> None:
-    rig = Rig()
+    clock = FakeClock()
+    follower = FakeRTDE(endless_packets(), clock=clock)
+    # Una conexión para `check_start` y otra para `connect`, como con el cliente real.
+    connections = iter([FakeRTDE(packets(1), hz=1000), follower])
     robot = make_robot(tmp_path)
     robot.core = UrFollowerCore(
-        load_config(TEMPLATE), launch=rig.launch, rtde_factory=lambda _ip: FakeRTDE(packets(1), hz=1000)
+        load_config(TEMPLATE), rtde_factory=lambda _ip: next(connections), clock=clock
     )
     robot.ask = answers("yes")
     robot.connect()
@@ -246,5 +247,5 @@ def test_with_the_real_core_arms_moves_reads_and_stops(tmp_path: Path) -> None:
         assert [robot.get_observation()[key] for key in JOINT_KEYS] == pytest.approx(START_Q_RAD)
     finally:
         robot.disconnect()
-    assert rig.worker is not None and not rig.worker.is_alive()
-    assert "parada pedida" in robot.core.status().stop_reason
+    assert follower.written_enable() == [0, 1, 0]
+    assert not follower.connected

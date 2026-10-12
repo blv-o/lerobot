@@ -12,7 +12,7 @@ follower que usan los tests de replay (sin esa variable no se escribe nada).
 
 import math
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 
 import pytest
 import rtde.rtde as rtde
@@ -24,9 +24,10 @@ from conftest import (
     program_running,
     wait_until,
 )
-from ur_core import FollowerState, FollowerStoppedError, UrFollowerCore
+from ur_core import FollowerStoppedError, UrFollowerCore
 from ur_core.clock import now_ns
-from ur_core.streaming import OUTPUT_NAMES, OUTPUT_TYPES, RTDE_PORT
+from ur_core.follower import OUTPUT_NAMES, OUTPUT_TYPES, READ_HZ
+from ur_core.startup import RTDE_PORT
 
 SINE_AMPLITUDE_RAD = 0.2
 SINE_FREQUENCY_HZ = 0.2
@@ -36,12 +37,19 @@ SHAPE_RMS_LIMIT_RAD = 0.02
 DELAY_LIMIT_S = 0.2
 SETTLE_S = 0.5
 MAX_SEARCHED_DELAY_MS = 300  # por encima del límite, para que un retraso excesivo se vea como tal
+ENABLE_S = 0.3  # consignas antes de desconectar: el programa tiene que haber visto enable=1
+STOP_DETECT_S = 1.0
+STEP_RAD = 0.5
+STEP_S = 1.5
+MAX_SPEED_RAD_S = math.radians(60)  # la del programa del TP
+SPEED_MARGIN = 1.05  # margen de la medida: posición y timestamp de paquetes consecutivos
+STEP_REACHED_RAD = 0.01
 
 pytestmark = [pytest.mark.ursim, pytest.mark.usefixtures("follower_program_playing")]
 
 
 def follower_recorder() -> TraceRecorder:
-    return TraceRecorder(FOLLOWER_IP, OUTPUT_NAMES, OUTPUT_TYPES, CONFIG.follower.servo.hz)
+    return TraceRecorder(FOLLOWER_IP, OUTPUT_NAMES, OUTPUT_TYPES, READ_HZ)
 
 
 @pytest.fixture
@@ -51,17 +59,24 @@ def core() -> Iterator[UrFollowerCore]:
     core.disconnect()
 
 
+def send_for(core: UrFollowerCore, q_rad: Sequence[float], duration_s: float) -> None:
+    """Reenvía la misma consigna a `SEND_HZ`, como LeRobot con el leader quieto."""
+    for _ in range(round(duration_s * SEND_HZ)):
+        core.send_joints(q_rad)
+        time.sleep(1 / SEND_HZ)
+
+
 def test_follower_is_ready_for_teleop() -> None:
     """Posición inicial leída por RTDE: lo que comprueba el arranque."""
     assert UrFollowerCore(CONFIG).check_start() == []
 
 
-def test_rtde_mode_values_match_the_ones_the_loop_expects() -> None:
-    """robot_mode RUNNING = 7 y safety_mode NORMAL = 1 con los tipos de la receta del bucle."""
+def test_rtde_mode_values_match_the_ones_the_follower_expects() -> None:
+    """robot_mode RUNNING = 7 y safety_mode NORMAL = 1 con los tipos de la receta del follower."""
     con = rtde.RTDE(FOLLOWER_IP, RTDE_PORT)
     con.connect()
     try:
-        assert con.send_output_setup(OUTPUT_NAMES, OUTPUT_TYPES, frequency=CONFIG.follower.servo.hz)
+        assert con.send_output_setup(OUTPUT_NAMES, OUTPUT_TYPES, frequency=READ_HZ)
         assert con.send_start()
         pkt = con.receive()
     finally:
@@ -70,13 +85,12 @@ def test_rtde_mode_values_match_the_ones_the_loop_expects() -> None:
     assert dashboard("safetystatus") == "Safetystatus: NORMAL" and pkt.safety_mode == 1
 
 
-def test_armed_follower_stays_still_in_wait_with_program_playing(core: UrFollowerCore) -> None:
-    """Si runtime_state no fuera PLAYING (= 2) con el programa del TP corriendo, el bucle pararía."""
+def test_armed_follower_stays_still_with_program_playing(core: UrFollowerCore) -> None:
+    """Si runtime_state no fuera PLAYING (= 2) con el programa del TP corriendo, get_joints lanzaría."""
     core.connect()
     q0 = core.get_joints()
     assert program_running()
     time.sleep(2.0)
-    assert core.status().state == FollowerState.WAIT
     assert max(abs(a - b) for a, b in zip(core.get_joints(), q0, strict=True)) < 1e-3
 
 
@@ -117,10 +131,7 @@ def test_sine_is_tracked_with_small_error_and_no_protective_stop(core: UrFollowe
         time.sleep(max(0.0, (next_ns - now_ns()) / 1e9))
     # El robot va retrasado: sin esperar a que vuelva a q0, cada ejecución lo dejaría ~2° más
     # lejos de la posición inicial y el arranque de los demás tests fallaría.
-    for _ in range(round(SETTLE_S * SEND_HZ)):
-        core.send_joints(q0)
-        time.sleep(1 / SEND_HZ)
-    status = core.status()
+    send_for(core, q0, SETTLE_S)
     core.disconnect()
     recorder.save("follower_sine")
     delays_s = [ms / 1000 for ms in range(0, MAX_SEARCHED_DELAY_MS + 1, 5)]
@@ -128,20 +139,41 @@ def test_sine_is_tracked_with_small_error_and_no_protective_stop(core: UrFollowe
     rms_rad = shape_rms_rad(samples, q0, delay_s)
     print(
         f"forma RMS = {rms_rad:.4f} rad con retraso {delay_s * 1e3:.0f} ms "
-        f"(sin descontarlo: {shape_rms_rad(samples, q0, 0.0):.4f} rad); periodo p50/p99/máx = "
-        f"{status.period_p50_s * 1e3:.2f}/{status.period_p99_s * 1e3:.2f}/{status.period_max_s * 1e3:.2f} ms"
+        f"(sin descontarlo: {shape_rms_rad(samples, q0, 0.0):.4f} rad)"
     )
-    assert status.state != FollowerState.STOP, status.stop_reason
-    assert "parada pedida" in core.status().stop_reason
     assert dashboard("safetystatus") == "Safetystatus: NORMAL"
     assert rms_rad < SHAPE_RMS_LIMIT_RAD
     assert delay_s < DELAY_LIMIT_S
 
 
+def test_large_step_is_followed_at_most_at_the_speed_limit(core: UrFollowerCore) -> None:
+    """Escalón de 0,5 rad en wrist_3 reenviado a 30 Hz, y vuelta. La velocidad se mide entre
+    paquetes RTDE consecutivos (Δactual_q / Δtimestamp del controlador), no entre llamadas."""
+    recorder = follower_recorder()
+    core.connect()
+    q0 = core.get_joints()
+    step = [*q0[:5], q0[5] + STEP_RAD]
+    send_for(core, step, STEP_S)
+    reached_rad = abs(core.get_joints()[5] - step[5])
+    send_for(core, q0, STEP_S)
+    back_rad = abs(core.get_joints()[5] - q0[5])
+    core.disconnect()
+    recorder.stop()
+    pkts = recorder.packets
+    speeds_rad_s = [
+        abs(b["actual_q"][5] - a["actual_q"][5]) / (b["timestamp"] - a["timestamp"])
+        for a, b in zip(pkts, pkts[1:], strict=False)
+        if b["timestamp"] > a["timestamp"]
+    ]
+    print(f"velocidad máxima de wrist_3 = {math.degrees(max(speeds_rad_s)):.1f} °/s")
+    assert reached_rad < STEP_REACHED_RAD and back_rad < STEP_REACHED_RAD
+    assert max(speeds_rad_s) <= MAX_SPEED_RAD_S * SPEED_MARGIN
+    assert dashboard("safetystatus") == "Safetystatus: NORMAL"
+
+
 def test_disconnect_stops_the_program_on_the_robot(core: UrFollowerCore) -> None:
     core.connect()
-    core.send_joints(core.get_joints())
-    wait_until(lambda: core.status().state == FollowerState.RUN, 2.0, "RUN")
+    send_for(core, core.get_joints(), ENABLE_S)
     core.disconnect()
     wait_until(lambda: not program_running(), 2.0, "programa parado")
 
@@ -151,18 +183,17 @@ def test_program_stopped_from_pendant_stops_the_follower(core: UrFollowerCore) -
     recorder = follower_recorder()
     core.connect()
     q0 = core.get_joints()
-    core.send_joints(q0)
-    wait_until(lambda: core.status().state == FollowerState.RUN, 2.0, "RUN")
+    send_for(core, q0, ENABLE_S)
     stop_ns = now_ns()
     dashboard("stop")
     # LeRobot sigue mandando consignas y se entera de la parada porque send_joints lanza.
     while True:
         try:
             core.send_joints(q0)
-        except FollowerStoppedError:
+        except FollowerStoppedError as exc:
+            reason = str(exc)
             break
-        assert now_ns() - stop_ns < CONFIG.follower.watchdog.stop_s * 1e9 + 0.5e9
+        assert now_ns() - stop_ns < STOP_DETECT_S * 1e9
         time.sleep(1 / SEND_HZ)
     recorder.save("follower_stopped_from_pendant")
-    reason = core.status().stop_reason
-    assert "runtime_state" in reason or "heartbeat" in reason, reason
+    assert "runtime_state" in reason, reason
