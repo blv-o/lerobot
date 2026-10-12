@@ -28,10 +28,10 @@ from ur_core.clock import now_ns
 from ur_core.config import N_JOINTS, FollowerConfig
 from ur_core.dashboard import DashboardClient
 from ur_core.motion import interpolate, limit_step
+from ur_core.startup import RTDE_PORT, RtdeConnection
 
 log = logging.getLogger("ur_core.follower")
 
-RTDE_PORT = 30004
 # Tiempo interno de arranque, no un ajuste del operador: que el programa del TP empiece a latir.
 ARM_TIMEOUT_S = 6.0
 PERIOD_WINDOW_S = 10.0  # ventana de p50/p99 del periodo
@@ -112,19 +112,6 @@ class FollowerStoppedError(RuntimeError):
 
 class _StreamLostError(Exception):
     pass
-
-
-class RtdeConnection(Protocol):
-    """Lo que el bucle usa del cliente RTDE oficial (`rtde.rtde.RTDE`)."""
-
-    def connect(self) -> None: ...
-    def disconnect(self) -> None: ...
-    def is_connected(self) -> bool: ...
-    def send_output_setup(self, variables: list[str], types: list[str], frequency: float) -> bool: ...
-    def send_input_setup(self, variables: list[str], types: list[str]) -> Any: ...
-    def send_start(self) -> bool: ...
-    def send(self, input_data: Any) -> Any: ...
-    def receive(self) -> Any: ...
 
 
 class Dashboard(Protocol):

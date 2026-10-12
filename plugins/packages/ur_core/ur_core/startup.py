@@ -7,15 +7,30 @@ solo comprueba que está allí, para que la primera consigna no provoque un salt
 import logging
 import math
 from collections.abc import Callable, Sequence
-from typing import Any
+from typing import Any, Protocol
 
 import rtde.rtde as rtde
 from rtde.rtde import RTDEException
 
 from ur_core.config import JOINT_NAMES
-from ur_core.streaming import RTDE_PORT, RtdeConnection
 
 log = logging.getLogger("ur_core.startup")
+
+RTDE_PORT = 30004
+
+
+class RtdeConnection(Protocol):
+    """Lo que follower y leader usan del cliente RTDE oficial (`rtde.rtde.RTDE`)."""
+
+    def connect(self) -> None: ...
+    def disconnect(self) -> None: ...
+    def is_connected(self) -> bool: ...
+    def send_output_setup(self, variables: list[str], types: list[str], frequency: float) -> bool: ...
+    def send_input_setup(self, variables: list[str], types: list[str]) -> Any: ...
+    def send_start(self) -> bool: ...
+    def send(self, input_data: Any) -> Any: ...
+    def receive(self) -> Any: ...
+    def receive_buffered(self) -> Any: ...
 
 
 def rtde_connection(ip: str) -> RtdeConnection:
