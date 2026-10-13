@@ -88,9 +88,6 @@ while read_input_integer_register(0) == 1:
 	end
 	servoj(cmd, 0, 0, DT_S, LOOKAHEAD_S, GAIN)
 	hb = hb + 1
-	if hb > 1000000:
-		hb = 0
-	end
 	write_output_integer_register(0, hb)
 end
 
