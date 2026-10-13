@@ -120,12 +120,20 @@ def _leader_schema(leader: Any) -> dict[str, Any]:
 
 def _read_yaml(path: Path) -> dict[str, Any]:
     # Ruta absoluta: la da el usuario, a menudo relativa a una carpeta que no es la que cree.
+    absolute = str(Path(path).absolute())
     try:
         # utf-8 explícito: en Windows el defecto es cp1252 y el YAML lleva comentarios en español.
         with open(path, encoding="utf-8") as f:
             raw = yaml.safe_load(f)
     except OSError as exc:
-        raise ConfigError(str(Path(path).absolute()), f"no se puede leer el YAML ({exc.strerror})") from exc
+        raise ConfigError(absolute, f"no se puede leer el YAML ({exc.strerror})") from exc
+    except UnicodeDecodeError as exc:
+        raise ConfigError(absolute, f"el YAML no está guardado en UTF-8 (byte {exc.start})") from exc
+    except yaml.YAMLError as exc:
+        # El mensaje de pyyaml repite la ruta en varias líneas: basta la línea y el problema.
+        mark = getattr(exc, "problem_mark", None)
+        where = f" en la línea {mark.line + 1}" if mark else ""
+        raise ConfigError(absolute, f"YAML mal escrito{where}: {getattr(exc, 'problem', exc)}") from exc
     if not isinstance(raw, dict):
         raise ConfigError("<raíz>", "el YAML debe ser un diccionario de claves")
     return raw
