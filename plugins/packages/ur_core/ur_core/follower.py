@@ -299,22 +299,27 @@ class UrFollowerCore:
         if self._stop_reason:
             raise FollowerStoppedError(self._stop_reason)
         try:
-            self._drain()
+            reason = self._drain() or self._robot_fault(self._last_pkt)
         except _ConnectionLostError as exc:
             raise self._stop(str(exc)) from exc
-        reason = self._robot_fault(self._last_pkt)
         if reason:
             raise self._stop(reason)
         return self._last_pkt
 
-    def _drain(self) -> None:
-        """Se queda con el último paquete llegado. La edad se mide después de vaciar: tras una
-        pausa larga llegan todos los acumulados y no es una conexión perdida."""
+    def _drain(self) -> str:
+        """Se queda con el último paquete llegado y devuelve la primera parada vista en cualquiera.
+
+        Se miran todos: un Stop y Play en el TP mientras LeRobot no lee deja el último en PLAYING,
+        pero el programa ya no es el que seguía las consignas. La edad se mide después de vaciar:
+        tras una pausa larga llegan todos los acumulados y no es una conexión perdida.
+        """
         rtde = self._connection()
         newest = None
+        fault = ""
         try:
             while (pkt := rtde.receive_buffered()) is not None:
                 newest = pkt
+                fault = fault or self._robot_fault(pkt)
         except (RTDEException, OSError) as exc:
             raise _ConnectionLostError(f"se perdió la conexión RTDE: {exc}") from exc
         if newest is not None:
@@ -327,6 +332,7 @@ class UrFollowerCore:
             raise _ConnectionLostError(
                 f"se perdió la conexión RTDE: ningún paquete nuevo en {age_ns / 1e9:.1f} s"
             )
+        return fault
 
     @staticmethod
     def _robot_fault(pkt: Any) -> str:
