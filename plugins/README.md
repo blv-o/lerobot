@@ -16,7 +16,7 @@ docker compose -f plugins/ursim/docker-compose.yml stop      # parar sin borrar 
 Con Docker Desktop los puertos aceptan conexiones antes de que URSim arranque: por eso la comprobación
 pide la versión del controlador por RTDE.
 
-URSim del follower ejecuta el `plugins/tp/follower_control.script` del checkout principal (el compose lo monta de ahí, ver `plugins/ursim/docker-compose.yml`): es el script de la rama activa en ese checkout. El `load` del Dashboard relee el archivo.
+URSim del follower ejecuta el `plugins/tp/follower_control.script` del checkout principal (el compose lo monta de ahí, ver `plugins/ursim/docker-compose.yml`): es el script de la rama activa en ese checkout. El `load` del Dashboard (tests) relee el archivo; el Play del TP usa la copia guardada en el `.urp` (ver sección 2).
 
 ## 2. Preparar los robots (a mano, en PolyScope)
 

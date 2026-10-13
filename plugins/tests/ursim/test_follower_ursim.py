@@ -197,8 +197,8 @@ def test_silent_pc_with_rtde_open_leaves_the_robot_still_and_playing(core: UrFol
 
 
 def test_rtde_cut_without_disconnect_leaves_the_program_playing(core: UrFollowerCore) -> None:
-    """Proceso matado o PC apagado: la conexión se corta sin enable=0 y el programa sigue en Play
-    con el robot quieto; se para con Stop en el TP."""
+    """Conexión cerrada sin enable=0 (como un proceso matado): el programa sigue en Play; se para
+    con Stop en el TP."""
     core.connect()
     send_for(core, core.get_joints(), ENABLE_S)
     core._connection().disconnect()  # cierra el socket del cliente RTDE sin escribir nada

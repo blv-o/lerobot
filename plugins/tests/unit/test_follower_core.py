@@ -233,8 +233,8 @@ def test_connect_arms_in_reduced_mode() -> None:
     ids=["get_joints", "send_joints"],
 )
 def test_relaunch_with_the_program_already_enabled_stops_on_the_first_call(call: Callable[..., Any]) -> None:
-    """Sin Stop y Play tras un PC colgado: el heartbeat late y `connect()` pasa, pero el enable=0
-    del armado termina el programa y la primera llamada lo ve."""
+    """Sin Stop y Play tras un PC colgado, el heartbeat late y `connect()` pasa. Si el programa
+    deja de estar en Play tras el armado, la primera llamada lo ve (el fake no simula el script)."""
     rig = armed([*packets(ARM_PACKETS), *packets(30, runtime_state=RUNTIME_STOPPED)])
     rig.tick()
     with pytest.raises(FollowerStoppedError, match="runtime_state=STOPPED"):

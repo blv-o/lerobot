@@ -2,8 +2,8 @@
 
 El programa del TP interpola, limita la velocidad y se queda en la última consigna; aquí solo se
 escribe cada consigna al momento y se lee el estado cuando LeRobot lo pide. Todo corre en el hilo
-que llama, sin hilos ni procesos: entre `connect()` y `disconnect()` nunca se espera al robot
-(`receive_buffered` no bloquea), así que el ritmo lo marca LeRobot. Es una segunda capa: la seguridad real es la de
+que llama, sin hilos ni procesos: tras `connect()` nunca se espera al robot (`receive_buffered`
+no bloquea), así que el ritmo lo marca LeRobot. Es una segunda capa: la seguridad real es la de
 PolyScope.
 """
 
