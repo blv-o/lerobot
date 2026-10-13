@@ -30,6 +30,7 @@ follower `http://127.0.0.2:6080/vnc.html`, leader `http://127.0.0.3:6080/vnc.htm
      (el compose ya lo monta en la carpeta de programas desde `plugins/tp/`).
    - No llamarlo `follower_control.urp`: al guardar `X.urp`, PolyScope genera `X.script` y pisa el script.
    - Tras cambiar `follower_control.script`, volver a guardar el `.urp` en el TP: el `.urp` guarda una copia del script.
+   - Robot real: copiar `follower_control.script` al robot con un USB (o por red a la carpeta de programas) y crear el `.urp` igual.
 
 Modo del follower (selector de la barra superior):
 - **Local** para teleoperar: en Remote, el Play del TP no funciona.
@@ -60,6 +61,7 @@ Copy-Item plugins\configs\ur_config.yaml mi_ur_config.yaml
      --teleop.type=ur_leader --teleop.config_path=mi_ur_config.yaml --fps=30 2>&1 | Tee-Object ur_session.log
    ```
    En Linux: `... 2>&1 | tee ur_session.log`.
+4. Para grabar, `lerobot-record` con los mismos `--robot.*` y `--teleop.*`, `--dataset.fps=30` y `--play_sounds=false` (la voz bloquea al pulsar Ctrl+C y retrasa la parada).
 
 - `--fps=30`: casa con `TARGET_PERIOD_S` (33 ms) del programa del TP, que llega a cada consigna en 5 vueltas de 8 ms (40 ms). Sin él, `lerobot-teleoperate` usa 60. En `lerobot-record` es `--dataset.fps` (por defecto 30).
 - Pregunta `yes/no` dos veces (primero el leader, luego el follower). Con `yes` comprueba la posición; si algo falla, lo dice y vuelve a preguntar.
@@ -69,6 +71,9 @@ Copy-Item plugins\configs\ur_config.yaml mi_ur_config.yaml
 ## 5. Parar
 
 - Parar siempre con **Ctrl+C**: parada limpia. El programa del TP frena con `stopj` y termina.
+  - Si aún no había llegado ninguna consigna (p. ej. «primera consigna lejos»), el programa sigue en Play con el robot quieto.
+- No dar Stop y Play en el TP con LeRobot en marcha (p. ej. mientras guarda un episodio): LeRobot para con «el programa del follower no está en ejecución» y el robot no se mueve.
+- Al grabar, dejar el leader quieto mientras se guarda el episodio: el programa no limita la aceleración y el robot arrancaría de golpe (a 60 °/s) hacia la nueva pose.
 - Si el PC deja de escribir sin esa parada (PC colgado, red caída, **Ctrl+Break**, proceso matado, PC apagado):
   - El robot se queda quieto en la última consigna, con el programa en Play. Cortar la conexión RTDE no lo para.
   - Se para con **Stop** en el TP.
