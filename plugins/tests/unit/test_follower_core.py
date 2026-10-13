@@ -380,6 +380,16 @@ def test_robot_stops_raise_with_reason_and_so_do_all_later_calls(
     assert rig.core.is_connected
 
 
+@pytest.mark.parametrize("call", CALLS, ids=["get_joints", "send_joints"])
+def test_a_stop_hidden_behind_newer_packets_still_stops(call: Call) -> None:
+    """Stop y Play en el TP mientras LeRobot no lee (p. ej. `save_episode`): el paquete más nuevo
+    vuelve a decir PLAYING, pero el programa nuevo ya no es el que estaba siguiendo las consignas."""
+    rig = running([*packets(3), *packets(2, runtime_state=RUNTIME_STOPPED), *packets(30)])
+    rig.tick(0.1)
+    with pytest.raises(FollowerStoppedError, match="runtime_state"):
+        call(rig.core)
+
+
 def test_reduced_mode_is_normal_operation() -> None:
     rig = running(packets(200, safety_mode=SAFETY_REDUCED))
     for _ in range(30):
