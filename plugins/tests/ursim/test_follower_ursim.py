@@ -21,13 +21,14 @@ from conftest import (
     FOLLOWER_IP,
     TraceRecorder,
     dashboard,
+    play_follower_program,
     program_running,
     wait_until,
 )
 from ur_core import FollowerStoppedError, UrFollowerCore
 from ur_core.clock import now_ns
 from ur_core.follower import OUTPUT_NAMES, OUTPUT_TYPES, READ_HZ
-from ur_core.startup import RTDE_PORT
+from ur_core.startup import RTDE_PORT, read_pose, rtde_connection
 
 SINE_AMPLITUDE_RAD = 0.2
 SINE_FREQUENCY_HZ = 0.2
@@ -46,6 +47,8 @@ SPEED_MARGIN = 1.05  # margen de la medida: posición y timestamp de paquetes co
 STEP_REACHED_RAD = 0.01
 SILENT_S = 3.0  # PC sin escribir con la conexión abierta
 STILL_RAD = 1e-3
+REARM_OFFSET_RAD = 0.1  # más que la tolerancia de la primera consigna (2·2°) y visible si se moviera
+REARM_WAIT_S = 1.0
 
 pytestmark = [pytest.mark.ursim, pytest.mark.usefixtures("follower_program_playing")]
 
@@ -226,3 +229,20 @@ def test_program_stopped_from_pendant_stops_the_follower(core: UrFollowerCore) -
         time.sleep(1 / SEND_HZ)
     recorder.save("follower_stopped_from_pendant")
     assert "runtime_state" in reason, reason
+
+
+def test_stop_and_play_while_lerobot_is_not_reading_never_moves_the_robot(core: UrFollowerCore) -> None:
+    """Stop y Play en el TP durante una pausa de LeRobot (p. ej. `save_episode`): el PC lo ve al
+    volver a leer, y el programa nuevo no se arma con el enable=1 que le llega aunque el PC escriba."""
+    core.connect()
+    q0 = core.get_joints()
+    send_for(core, q0, ENABLE_S)
+    play_follower_program()  # Stop y Play sin que el PC lea
+    target = [*q0[:5], q0[5] + REARM_OFFSET_RAD]
+    with pytest.raises(FollowerStoppedError, match="runtime_state"):
+        core.send_joints(target)
+    core._write(target, enable=1)  # lo que escribía el PC antes de revisar cada paquete
+    time.sleep(REARM_WAIT_S)
+    q_rad = read_pose(rtde_connection(FOLLOWER_IP), READ_HZ)
+    assert max(abs(a - b) for a, b in zip(q_rad, q0, strict=True)) < STILL_RAD
+    assert program_running()

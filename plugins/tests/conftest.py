@@ -130,7 +130,12 @@ PROGRAM_START_TIMEOUT_S = 10.0
 
 @pytest.fixture
 def follower_program_playing() -> None:
-    """Pone en marcha el programa del follower antes de cada test, como el operador con Play.
+    """Pone en marcha el programa del follower antes de cada test, como el operador con Play."""
+    play_follower_program()
+
+
+def play_follower_program() -> None:
+    """Stop y Play del programa del follower por el Dashboard.
 
     Solo de test (el código del follower nunca lo hace) y con URSim en modo Remote. Siempre desde
     cero: una instancia que quedara de otro test podría estar ya habilitada.
