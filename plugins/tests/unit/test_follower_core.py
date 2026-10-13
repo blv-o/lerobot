@@ -482,6 +482,14 @@ def test_disconnect_with_a_broken_socket_logs_it_and_still_closes(caplog: pytest
     assert not rig.rtde.connected and not rig.core.is_connected
 
 
+def test_a_failed_disable_on_disconnect_is_logged_with_t_ns(caplog: pytest.LogCaptureFixture) -> None:
+    rig = armed()
+    rig.core.send_joints(NEAR)
+    rig.rtde._fail.add("send_oserror")
+    rig.core.disconnect()
+    assert any("enable=0" in r.getMessage() and "t_ns=" in r.getMessage() for r in caplog.records)
+
+
 def test_disconnect_with_a_socket_that_fails_to_close_logs_it_and_does_not_raise(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
