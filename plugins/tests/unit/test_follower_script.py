@@ -46,9 +46,10 @@ def test_motion_constants_and_servoj_arguments(script: str) -> None:
 
 
 def test_arms_on_a_new_counter_then_follows_with_limited_steps_and_stops(script: str) -> None:
-    """Pose leída una vez → espera a que cambie el contador del PC con enable=0 (no a un valor: los
-    registros guardan el último tras desconectar, también un enable=1 viejo) → avance recortado al
-    final del tramo y paso recortado a la velocidad máxima → stopj al volver enable a 0."""
+    """Pose leída una sola vez. En orden: espera a que cambie el contador del PC con enable=0 (no a
+    un valor: los registros guardan el último tras desconectar, también un enable=1 viejo) →
+    avance recortado al final del tramo y paso recortado a la velocidad máxima → stopj al volver
+    enable a 0."""
     assert script.count("get_actual_joint_positions()") == 1
     order = [
         "while read_input_integer_register(1) == v0 or read_input_integer_register(0) != 0:",
