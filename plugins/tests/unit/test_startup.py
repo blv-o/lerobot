@@ -4,7 +4,8 @@ import math
 from collections.abc import Callable
 
 import pytest
-from ur_core.startup import confirm_and_check, confirm_start, pose_errors
+from fakes import FakeRTDE, packets
+from ur_core.startup import READ_HZ, check_pose, confirm_and_check, confirm_start, pose_errors
 
 START_RAD = [0.0, -math.pi / 2, math.pi / 2, -math.pi / 2, -math.pi / 2, 0.0]
 TOL_RAD = math.radians(2)
@@ -66,3 +67,27 @@ def test_cancel_by_the_operator_is_logged_with_t_ns(caplog: pytest.LogCaptureFix
     with pytest.raises(SystemExit):
         confirm_start("¿Continuar?", lambda: [], ask=answers("no"))
     assert any("cancelado" in r.getMessage() and "t_ns=" in r.getMessage() for r in caplog.records)
+
+
+def check(con: FakeRTDE) -> list[str]:
+    return check_pose("follower", "127.0.0.2", con, READ_HZ, START_RAD, TOL_RAD)
+
+
+def test_check_pose_reports_unreachable_rtde() -> None:
+    errors = check(FakeRTDE(packets(1), hz=1000, fail=("connect",)))
+    assert len(errors) == 1 and "RTDE" in errors[0]
+
+
+def test_check_pose_closes_the_rtde_socket_when_negotiation_fails() -> None:
+    """El cliente oficial abre el socket antes de negociar el protocolo: si falla, hay que cerrarlo."""
+    con = FakeRTDE(packets(1), hz=1000, fail=("connect_protocol",))
+    errors = check(con)
+    assert len(errors) == 1 and "RTDE" in errors[0]
+    assert not con.connected
+
+
+def test_check_pose_does_not_blame_the_robot_for_our_own_attribute_error() -> None:
+    """Solo el AttributeError del cliente oficial significa "el robot no respondió". Un paquete
+    sin el campo pedido sería un fallo de nuestra receta."""
+    with pytest.raises(AttributeError):
+        check(FakeRTDE([{"timestamp": 0.0}], hz=1000))

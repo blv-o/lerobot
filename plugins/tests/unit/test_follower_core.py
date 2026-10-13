@@ -536,24 +536,17 @@ def test_arming_enabling_and_stopping_are_logged_with_t_ns(caplog: pytest.LogCap
 # --- comprobaciones de arranque --------------------------------------------------------------
 
 
-def make_core(
-    q_rad: list[float] = START_Q_RAD, config: TeleopConfig = CONFIG, rtde_fail: tuple[str, ...] = ()
-) -> UrFollowerCore:
+def make_core(q_rad: list[float] = START_Q_RAD, rtde_fail: tuple[str, ...] = ()) -> UrFollowerCore:
     def rtde_factory(_ip: str) -> FakeRTDE:
         return FakeRTDE(packets(1, q_rad=q_rad), hz=1000, fail=rtde_fail)
 
-    return UrFollowerCore(config, rtde_factory=rtde_factory)
+    return UrFollowerCore(CONFIG, rtde_factory=rtde_factory)
 
 
-def test_check_start_reports_joint_out_of_tolerance() -> None:
-    q = list(START_Q_RAD)
-    q[4] += math.radians(5.3)
+def test_check_start_reads_the_follower_pose() -> None:
+    """La comparación con la posición inicial la prueba `test_startup.py`; aquí, que lee el follower."""
+    q = offset(START_Q_RAD, 4, math.radians(5.3))
     assert make_core(q_rad=q).check_start() == ["follower wrist_2: 5,3° fuera de tolerancia"]
-
-
-def test_check_start_reports_unreachable_rtde() -> None:
-    errors = make_core(rtde_fail=("connect",)).check_start()
-    assert len(errors) == 1 and "RTDE" in errors[0]
 
 
 def test_check_start_reports_robot_not_answering_the_rtde_setup() -> None:
@@ -561,30 +554,6 @@ def test_check_start_reports_robot_not_answering_the_rtde_setup() -> None:
     errors = make_core(rtde_fail=("setup_timeout",)).check_start()
     assert len(errors) == 1
     assert "RTDE" in errors[0] and "no respondió" in errors[0]
-
-
-def test_check_start_does_not_blame_the_robot_for_our_own_attribute_error() -> None:
-    """Solo el AttributeError del cliente oficial significa "el robot no respondió". Un paquete
-    sin el campo pedido sería un fallo de nuestra receta."""
-
-    def rtde_factory(_ip: str) -> FakeRTDE:
-        return FakeRTDE([{"timestamp": 0.0}], hz=1000)
-
-    with pytest.raises(AttributeError):
-        UrFollowerCore(CONFIG, rtde_factory=rtde_factory).check_start()
-
-
-def test_check_start_closes_the_rtde_socket_when_negotiation_fails() -> None:
-    """El cliente oficial abre el socket antes de negociar el protocolo: si falla, hay que cerrarlo."""
-    connections: list[FakeRTDE] = []
-
-    def rtde_factory(_ip: str) -> FakeRTDE:
-        connections.append(FakeRTDE(packets(1), hz=1000, fail=("connect_protocol",)))
-        return connections[-1]
-
-    errors = UrFollowerCore(CONFIG, rtde_factory=rtde_factory).check_start()
-    assert len(errors) == 1 and "RTDE" in errors[0]
-    assert not connections[0].connected
 
 
 def test_start_prompt_tells_what_to_prepare_on_the_pendant() -> None:
