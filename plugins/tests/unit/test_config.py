@@ -234,143 +234,78 @@ def test_low_cost_leader_keys_are_required(tmp_path: Path, dotted: str) -> None:
     assert exc.value.field == dotted
 
 
-@pytest.mark.parametrize(("dotted", "value"), [("leader.ip", "127.0.0.3")])
-def test_ur_only_keys_are_rejected_with_low_cost_leader(tmp_path: Path, dotted: str, value: Any) -> None:
-    """Una clave de leader UR en un leader low-cost no se ignora: el YAML estaría mezclando tipos."""
-    data = low_cost_base()
-    set_path(data, dotted, value)
-    with pytest.raises(ConfigError) as exc:
-        load(tmp_path, data)
-    assert exc.value.field == dotted
+def case(case_id: str, dotted: str, value: Any, make: Any = base, reason: str = "") -> Any:
+    """Un YAML (`make()` con `dotted` = `value`) que se rechaza con ConfigError en ese campo."""
+    return pytest.param(make, dotted, value, reason, id=case_id)
 
 
-@pytest.mark.parametrize(
-    ("dotted", "value"),
-    [
-        ("leader.hz", 0),
-        ("leader.port", 3),
-        ("leader.mapping.direction", ["normal"] * 5),
-        ("leader.mapping.direction", ["normal"] * 5 + ["inverted"]),
-    ],
-)
-def test_low_cost_leader_values_are_validated(tmp_path: Path, dotted: str, value: Any) -> None:
-    data = low_cost_base()
-    set_path(data, dotted, value)
-    with pytest.raises(ConfigError) as exc:
-        load(tmp_path, data)
-    assert exc.value.field == dotted
+REJECTED = [
+    # Una clave de leader UR en un leader low-cost no se ignora: el YAML estaría mezclando tipos.
+    case("low_cost-ur_ip", "leader.ip", "127.0.0.3", make=low_cost_base),
+    case("low_cost-hz_0", "leader.hz", 0, make=low_cost_base),
+    case("low_cost-port_number", "leader.port", 3, make=low_cost_base),
+    case("low_cost-direction_5", "leader.mapping.direction", ["normal"] * 5, make=low_cost_base),
+    case(
+        "low_cost-direction_inverted",
+        "leader.mapping.direction",
+        ["normal"] * 5 + ["inverted"],
+        make=low_cost_base,
+    ),
+    # Una clave que el código no usa no se ignora en silencio. Velocidad e interpolación las fija
+    # solo el programa del TP: en el YAML no harían nada.
+    case("unknown-gripper_follower", "gripper_follower", {"type": "none"}),
+    case("unknown-mapping", "mapping", {"direction": ["normal"] * 6}),
+    case("unknown-leader.port", "leader.port", "COM3"),
+    case("unknown-leader.mapping", "leader.mapping", {"direction": ["normal"] * 6}),
+    case("unknown-leader.hz", "leader.hz", 100),
+    case("unknown-leader.rtde_hz", "leader.rtde_hz", 500),  # el leader UR se lee al ritmo fijo del código
+    case("unknown-follower.servo", "follower.servo", {"hz": 125}),
+    case("unknown-follower.watchdog", "follower.watchdog", {"hz": 125}),
+    case("start_pose-5_joints", "start_pose_deg", [0, -90, 90, -90, -90]),
+    case("start_pose-7_joints", "start_pose_deg", [0, -90, 90, -90, -90, 0, 0]),
+    case("start_pose-text", "start_pose_deg", [0, -90, 90, -90, -90, "a"]),
+    # Con tolerancia ≤ 0 ningún robot pasaría el arranque y con `timeout_ms` ≤ 0 el leader
+    # fallaría en cada lectura.
+    case("tolerance-negative", "start_tolerance_deg", -1),
+    case("tolerance-zero", "start_tolerance_deg", 0),
+    case("timeout-negative", "leader.timeout_ms", -1),
+    case("timeout-zero", "leader.timeout_ms", 0),
+    # Con una tolerancia grande, los dos robots arrancarían lejos entre sí y la primera consigna
+    # pediría un salto.
+    case("tolerance-over_5", "start_tolerance_deg", 5.1),
+    case("tolerance-30", "start_tolerance_deg", 30),
+    # `.nan`/`.inf` en el YAML son floats válidos para Python y pasarían las comparaciones.
+    case("start_pose-nan", "start_pose_deg", [0, -90, float("nan"), -90, -90, 0], reason="finito"),
+    case("start_pose-inf", "start_pose_deg", [0, -90, 90, -90, -90, float("-inf")], reason="finito"),
+    case("timeout-inf", "leader.timeout_ms", float("inf"), reason="finito"),
+    case("timeout-nan", "leader.timeout_ms", float("nan"), reason="finito"),
+    case("tolerance-inf", "start_tolerance_deg", float("inf"), reason="finito"),
+    case("tolerance-nan", "start_tolerance_deg", float("nan"), reason="finito"),
+    case("leader_ip-number", "leader.ip", 1234),
+    case("follower_ip-number", "follower.ip", 1234),
+    # Un YAML mal formado da siempre ConfigError con el campo, nunca TypeError/KeyError.
+    case("shape-leader_none", "leader", None),
+    case("shape-type_sim_only", "leader.type", {"sim": "ur3e"}),
+    case("shape-ip_extra_profile", "follower.ip", {"sim": "a", "real": "b", "extra": "c"}),
+]
 
 
-@pytest.mark.parametrize(
-    ("dotted", "value"),
-    [
-        ("gripper_follower", {"type": "none"}),
-        ("mapping", {"direction": ["normal"] * 6}),
-        ("leader.port", "COM3"),
-        ("leader.mapping", {"direction": ["normal"] * 6}),
-        ("leader.hz", 100),
-        ("leader.rtde_hz", 500),  # el leader UR se lee al ritmo fijo del código
-    ],
-)
-def test_unknown_key_is_rejected(tmp_path: Path, dotted: str, value: Any) -> None:
-    """Una clave que el código no usa no se ignora en silencio."""
-    data = base()
-    set_path(data, dotted, value)
-    with pytest.raises(ConfigError) as exc:
-        load(tmp_path, data)
-    assert exc.value.field == dotted
-
-
-@pytest.mark.parametrize("section", ["servo", "watchdog"])
-def test_motion_settings_are_rejected_because_they_live_in_the_robot_program(
-    tmp_path: Path, section: str
+@pytest.mark.parametrize(("make", "dotted", "value", "reason"), REJECTED)
+def test_invalid_yaml_is_rejected_naming_the_field(
+    tmp_path: Path, make: Any, dotted: str, value: Any, reason: str
 ) -> None:
-    """Velocidad e interpolación las fija solo el programa del TP: en el YAML no harían nada."""
-    data = base()
-    data["follower"][section] = {"hz": 125}
-    with pytest.raises(ConfigError) as exc:
-        load(tmp_path, data)
-    assert exc.value.field == f"follower.{section}"
-    assert exc.value.reason == "clave desconocida"
-
-
-@pytest.mark.parametrize(
-    ("dotted", "value"),
-    [
-        ("start_pose_deg", [0, -90, 90, -90, -90]),
-        ("start_pose_deg", [0, -90, 90, -90, -90, 0, 0]),
-        ("start_pose_deg", [0, -90, 90, -90, -90, "a"]),
-    ],
-)
-def test_out_of_range_value_is_rejected(tmp_path: Path, dotted: str, value: Any) -> None:
-    data = base()
+    data = make()
     set_path(data, dotted, value)
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, data)
     assert exc.value.field == dotted
+    assert reason in exc.value.reason
 
 
-@pytest.mark.parametrize(
-    ("dotted", "value"),
-    [
-        ("start_tolerance_deg", -1),
-        ("start_tolerance_deg", 0),
-        ("leader.timeout_ms", -1),
-        ("leader.timeout_ms", 0),
-    ],
-)
-def test_non_positive_value_is_rejected(tmp_path: Path, dotted: str, value: Any) -> None:
-    """Con tolerancia ≤ 0 ningún robot pasaría el arranque y con `timeout_ms` ≤ 0 el leader
-    fallaría en cada lectura."""
+def test_start_tolerance_of_5_deg_is_accepted(tmp_path: Path) -> None:
     data = base()
-    set_path(data, dotted, value)
-    with pytest.raises(ConfigError) as exc:
-        load(tmp_path, data)
-    assert exc.value.field == dotted
-
-
-@pytest.mark.parametrize(("tolerance_deg", "accepted"), [(5, True), (5.1, False), (30, False)])
-def test_start_tolerance_has_an_upper_limit(tmp_path: Path, tolerance_deg: float, accepted: bool) -> None:
-    """Con una tolerancia grande, los dos robots arrancarían lejos entre sí y la primera consigna
-    pediría un salto."""
-    data = base()
-    set_path(data, "start_tolerance_deg", tolerance_deg)
-    if accepted:
-        load(tmp_path, data)
-        return
-    with pytest.raises(ConfigError) as exc:
-        load(tmp_path, data)
-    assert exc.value.field == "start_tolerance_deg"
-
-
-@pytest.mark.parametrize(
-    ("dotted", "value"),
-    [
-        ("start_pose_deg", [0, -90, float("nan"), -90, -90, 0]),
-        ("start_pose_deg", [0, -90, 90, -90, -90, float("-inf")]),
-        ("leader.timeout_ms", float("inf")),
-        ("leader.timeout_ms", float("nan")),
-        ("start_tolerance_deg", float("inf")),
-        ("start_tolerance_deg", float("nan")),
-    ],
-)
-def test_non_finite_value_is_rejected(tmp_path: Path, dotted: str, value: Any) -> None:
-    """`.nan`/`.inf` en el YAML son floats válidos para Python y pasarían las comparaciones."""
-    data = base()
-    set_path(data, dotted, value)
-    with pytest.raises(ConfigError) as exc:
-        load(tmp_path, data)
-    assert exc.value.field == dotted
-    assert "finito" in exc.value.reason
-
-
-@pytest.mark.parametrize("side", ["leader", "follower"])
-def test_ip_must_be_text(tmp_path: Path, side: str) -> None:
-    data = base()
-    data[side]["ip"] = 1234
-    with pytest.raises(ConfigError) as exc:
-        load(tmp_path, data)
-    assert exc.value.field == f"{side}.ip"
+    data["start_tolerance_deg"] = 5
+    assert load(tmp_path, data).start_tolerance_rad == pytest.approx(math.radians(5))
 
 
 @pytest.mark.parametrize(
@@ -383,23 +318,6 @@ def test_invalid_profile_is_rejected(tmp_path: Path, profile: Any) -> None:
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, data)
     assert exc.value.field.startswith("profile")
-
-
-@pytest.mark.parametrize(
-    ("dotted", "value"),
-    [
-        ("leader", None),
-        ("leader.type", {"sim": "ur3e"}),
-        ("follower.ip", {"sim": "a", "real": "b", "extra": "c"}),
-    ],
-)
-def test_wrong_shape_raises_config_error(tmp_path: Path, dotted: str, value: Any) -> None:
-    """Un YAML mal formado da siempre ConfigError con el campo, nunca TypeError/KeyError."""
-    data = base()
-    set_path(data, dotted, value)
-    with pytest.raises(ConfigError) as exc:
-        load(tmp_path, data)
-    assert exc.value.field == dotted
 
 
 @pytest.mark.parametrize("name", ["no_existe.yaml", "."])
