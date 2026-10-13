@@ -409,6 +409,26 @@ def test_unreadable_yaml_names_its_absolute_path(
     assert str((tmp_path / name).absolute()) in str(exc.value)
 
 
+@pytest.mark.parametrize(
+    ("content", "reason"),
+    [
+        ("leader: [ur3e\n".encode(), "YAML mal escrito"),
+        ("# posición inicial\nprofile: sim\n".encode("cp1252"), "UTF-8"),
+    ],
+    ids=["bad_yaml", "not_utf8"],
+)
+def test_malformed_yaml_names_its_absolute_path_and_the_reason(
+    tmp_path: Path, content: bytes, reason: str
+) -> None:
+    """Un YAML roto o guardado en otra codificación da ConfigError, no un error de pyyaml."""
+    path = tmp_path / "ur_config.yaml"
+    path.write_bytes(content)
+    with pytest.raises(ConfigError) as exc:
+        load_config(path)
+    assert exc.value.field == str(path.absolute())
+    assert reason in exc.value.reason
+
+
 @pytest.mark.parametrize("content", ["", "- 1\n- 2\n", "solo texto\n"])
 def test_root_must_be_a_mapping(tmp_path: Path, content: str) -> None:
     path = tmp_path / "ur_config.yaml"
