@@ -138,7 +138,7 @@ def test_sine_is_tracked_with_small_error_and_no_protective_stop(core: UrFollowe
     # lejos de la posición inicial y el arranque de los demás tests fallaría.
     send_for(core, q0, SETTLE_S)
     core.disconnect()
-    # La traza tiene que acabar con el programa parado: la reproduce test_replay.py.
+    # disconnect() para el programa; la traza tiene que acabar así: la reproduce test_replay.py.
     wait_until(lambda: not program_running(), 2.0, "programa parado")
     recorder.save("follower_sine")
     delays_s = [ms / 1000 for ms in range(0, MAX_SEARCHED_DELAY_MS + 1, 5)]
@@ -177,13 +177,6 @@ def test_large_step_is_followed_at_most_at_the_speed_limit(core: UrFollowerCore)
     assert reached_rad < STEP_REACHED_RAD and back_rad < STEP_REACHED_RAD
     assert max(speeds_rad_s) <= MAX_SPEED_RAD_S * SPEED_MARGIN
     assert dashboard("safetystatus") == "Safetystatus: NORMAL"
-
-
-def test_disconnect_stops_the_program_on_the_robot(core: UrFollowerCore) -> None:
-    core.connect()
-    send_for(core, core.get_joints(), ENABLE_S)
-    core.disconnect()
-    wait_until(lambda: not program_running(), 2.0, "programa parado")
 
 
 def test_silent_pc_with_rtde_open_leaves_the_robot_still_and_playing(core: UrFollowerCore) -> None:
