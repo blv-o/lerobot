@@ -1,19 +1,14 @@
 """Confirmación del operador y comprobación de la posición inicial antes de conectar."""
 
 import math
-from collections.abc import Callable
 
 import pytest
+from conftest import answers
 from fakes import FakeRTDE, packets
 from ur_core.startup import READ_HZ, check_pose, confirm_and_check, confirm_start, pose_errors
 
 START_RAD = [0.0, -math.pi / 2, math.pi / 2, -math.pi / 2, -math.pi / 2, 0.0]
 TOL_RAD = math.radians(2)
-
-
-def answers(*replies: str) -> Callable[[str], str]:
-    it = iter(replies)
-    return lambda _prompt: next(it)
 
 
 def test_yes_with_all_checks_ok_returns_true() -> None:

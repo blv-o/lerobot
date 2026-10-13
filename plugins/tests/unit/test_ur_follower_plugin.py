@@ -6,20 +6,17 @@ el último usa el núcleo real con `FakeRTDE`, para que el doble no se aleje de 
 
 import logging
 import math
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
+from conftest import CONFIG_PATH, JOINT_KEYS, answers
 from fakes import START_Q_RAD, FakeClock, FakeRTDE, endless_packets, packets
 from lerobot_robot_ur_follower import UrFollower, UrFollowerConfig
-from ur_core import JOINT_NAMES, ConfigError, FollowerStoppedError, UrFollowerCore, load_config
+from ur_core import ConfigError, FollowerStoppedError, UrFollowerCore, load_config
 
 from lerobot.cameras.opencv import OpenCVCameraConfig
-
-TEMPLATE = Path(__file__).parents[2] / "configs" / "ur_config.yaml"
-JOINT_KEYS = [f"{joint}.pos" for joint in JOINT_NAMES]
 
 
 class FakeCore:
@@ -81,13 +78,8 @@ class FakeCamera:
         self.is_connected = False
 
 
-def answers(*replies: str) -> Callable[[str], str]:
-    it = iter(replies)
-    return lambda _prompt: next(it)
-
-
 def make_robot(tmp_path: Path, **config: Any) -> UrFollower:
-    return UrFollower(UrFollowerConfig(config_path=TEMPLATE, calibration_dir=tmp_path, **config))
+    return UrFollower(UrFollowerConfig(config_path=CONFIG_PATH, calibration_dir=tmp_path, **config))
 
 
 @pytest.fixture
@@ -235,7 +227,7 @@ def test_with_the_real_core_arms_moves_reads_and_stops(tmp_path: Path) -> None:
     connections = iter([FakeRTDE(packets(1), hz=1000), follower])
     robot = make_robot(tmp_path)
     robot.core = UrFollowerCore(
-        load_config(TEMPLATE), rtde_factory=lambda _ip: next(connections), clock=clock
+        load_config(CONFIG_PATH), rtde_factory=lambda _ip: next(connections), clock=clock
     )
     robot.ask = answers("yes")
     robot.connect()

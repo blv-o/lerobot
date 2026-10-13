@@ -1,16 +1,13 @@
 """Adaptador `UrLeader(Teleoperator)`: solo traduce entre LeRobot y `UrLeaderCore`."""
 
 import logging
-from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from conftest import CONFIG_PATH, JOINT_KEYS, answers
 from fakes import START_Q_RAD, FakeRTDE, ticking_packets
 from lerobot_teleoperator_ur_leader import UrLeader, UrLeaderConfig
-from ur_core import JOINT_NAMES, ConfigError, LeaderReadError, UrLeaderCore, load_config
-
-TEMPLATE = Path(__file__).parents[2] / "configs" / "ur_config.yaml"
-JOINT_KEYS = [f"{joint}.pos" for joint in JOINT_NAMES]
+from ur_core import ConfigError, LeaderReadError, UrLeaderCore, load_config
 
 
 class FakeCore:
@@ -43,13 +40,8 @@ class FakeCore:
         self.is_connected = False
 
 
-def answers(*replies: str) -> Callable[[str], str]:
-    it = iter(replies)
-    return lambda _prompt: next(it)
-
-
 def make_leader(tmp_path: Path) -> UrLeader:
-    return UrLeader(UrLeaderConfig(config_path=TEMPLATE, calibration_dir=tmp_path))
+    return UrLeader(UrLeaderConfig(config_path=CONFIG_PATH, calibration_dir=tmp_path))
 
 
 @pytest.fixture
@@ -137,7 +129,7 @@ def test_with_the_real_core_reads_and_stops(tmp_path: Path) -> None:
         connections.append(FakeRTDE(ticking_packets(), hz=500))
         return connections[-1]
 
-    leader.core = UrLeaderCore(load_config(TEMPLATE), rtde_factory=rtde_factory)
+    leader.core = UrLeaderCore(load_config(CONFIG_PATH), rtde_factory=rtde_factory)
     leader.ask = answers("yes")
     leader.connect()
     try:

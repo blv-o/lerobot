@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import rtde.rtde as rtde
-from conftest import CONFIG, CONFIG_PATH, dashboard, encode_video, wait_until
+from conftest import CONFIG, CONFIG_PATH, JOINT_KEYS, dashboard, wait_until
 from lerobot_robot_ur_follower import UrFollower, UrFollowerConfig
 from lerobot_teleoperator_ur_leader import UrLeader, UrLeaderConfig
 from test_follower_ursim import DELAY_LIMIT_S, MAX_SEARCHED_DELAY_MS, SHAPE_RMS_LIMIT_RAD
@@ -43,7 +43,38 @@ LEADER_MOTION_S = TELEOP_S + 20.0  # cubre el bucle; el script de vuelta a casa 
 LEADER_SCRIPT_TIMEOUT_S = 30.0
 VIDEO_START_TIMEOUT_S = 30.0
 VIDEO_MIN_FPS = 27.0
-JOINT_KEYS = [f"{joint}.pos" for joint in JOINT_NAMES]
+
+
+# --- carga de vídeo -------------------------------------------------------------------------
+# La de `lerobot-record` con codificación en directo (`--dataset.streaming_encoding=true
+# --dataset.encoder_threads=2`): una cámara 640×480 a 30 fps codificada en un hilo del proceso.
+VIDEO_FPS = 30
+VIDEO_SIZE = (640, 480)
+ENCODER_THREADS = 2  # el valor que recomienda lerobot-record para la codificación en directo
+
+
+def encode_video(stop: threading.Event, frames_encoded: list[int]) -> None:
+    """Codifica fotogramas de ruido (el peor caso para el códec) al ritmo de una cámara."""
+    import av
+
+    from lerobot.configs.video import VideoEncoderConfig
+
+    encoder = VideoEncoderConfig()
+    width, height = VIDEO_SIZE
+    codec = av.CodecContext.create(encoder.vcodec, "w")
+    codec.width, codec.height, codec.pix_fmt = width, height, encoder.pix_fmt
+    codec.framerate = VIDEO_FPS
+    codec.options = encoder.get_codec_options(ENCODER_THREADS, as_strings=True)
+    rng = np.random.default_rng(0)
+    frames = [rng.integers(0, 256, (height, width, 3), dtype=np.uint8) for _ in range(VIDEO_FPS)]
+    period_ns = round(1e9 / VIDEO_FPS)
+    next_ns = now_ns()
+    while not stop.is_set():
+        image = frames[frames_encoded[0] % len(frames)]
+        codec.encode(av.VideoFrame.from_ndarray(image, format="rgb24").reformat(format=encoder.pix_fmt))
+        frames_encoded[0] += 1
+        next_ns += period_ns
+        time.sleep(max(0.0, (next_ns - now_ns()) / 1e9))
 
 
 @contextmanager

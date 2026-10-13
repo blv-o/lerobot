@@ -1,4 +1,5 @@
-"""Lo que comparten los tests `ursim`: el URSim follower, sus trazas y la carga de vídeo.
+"""Lo que comparten los tests: plantilla, claves de LeRobot, el operador de mentira y, para los
+`ursim`, el URSim follower y sus trazas.
 
 `follower_program_playing` no es autouse (aquí se aplicaría también a los tests sin URSim): cada
 archivo que lo necesita lo pide con `pytest.mark.usefixtures`. Las funciones se importan con
@@ -10,12 +11,13 @@ import os
 import socket
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
 import rtde.rtde as rtde
-from ur_core import load_config
+from ur_core import JOINT_NAMES, load_config
 from ur_core.clock import now_ns
 from ur_core.follower import READ_HZ, RUNTIME_PLAYING
 from ur_core.startup import RTDE_PORT
@@ -25,6 +27,13 @@ CONFIG_PATH = PLUGINS / "configs" / "ur_config.yaml"
 CONFIG = load_config(CONFIG_PATH)
 FOLLOWER_IP = CONFIG.follower.ip
 DASHBOARD_PORT = 29999
+JOINT_KEYS = [f"{joint}.pos" for joint in JOINT_NAMES]
+
+
+def answers(*replies: str) -> Callable[[str], str]:
+    """El operador que responde a la confirmación de arranque, en orden."""
+    it = iter(replies)
+    return lambda _prompt: next(it)
 
 
 def dashboard(command: str) -> str:
@@ -157,36 +166,3 @@ def play_follower_program() -> None:
         wait_until(playing, PROGRAM_START_TIMEOUT_S, "programa del follower en marcha")
     except AssertionError as exc:
         raise AssertionError(f"{exc}; respuestas del Dashboard: {replies}") from exc
-
-
-# --- carga de vídeo -------------------------------------------------------------------------
-# La de `lerobot-record` con codificación en directo (`--dataset.streaming_encoding=true
-# --dataset.encoder_threads=2`): una cámara 640×480 a 30 fps codificada en un hilo del proceso.
-VIDEO_FPS = 30
-VIDEO_SIZE = (640, 480)
-ENCODER_THREADS = 2  # el valor que recomienda lerobot-record para la codificación en directo
-
-
-def encode_video(stop: threading.Event, frames_encoded: list[int]) -> None:
-    """Codifica fotogramas de ruido (el peor caso para el códec) al ritmo de una cámara."""
-    import av
-    import numpy as np
-
-    from lerobot.configs.video import VideoEncoderConfig
-
-    encoder = VideoEncoderConfig()
-    width, height = VIDEO_SIZE
-    codec = av.CodecContext.create(encoder.vcodec, "w")
-    codec.width, codec.height, codec.pix_fmt = width, height, encoder.pix_fmt
-    codec.framerate = VIDEO_FPS
-    codec.options = encoder.get_codec_options(ENCODER_THREADS, as_strings=True)
-    rng = np.random.default_rng(0)
-    frames = [rng.integers(0, 256, (height, width, 3), dtype=np.uint8) for _ in range(VIDEO_FPS)]
-    period_ns = round(1e9 / VIDEO_FPS)
-    next_ns = now_ns()
-    while not stop.is_set():
-        image = frames[frames_encoded[0] % len(frames)]
-        codec.encode(av.VideoFrame.from_ndarray(image, format="rgb24").reformat(format=encoder.pix_fmt))
-        frames_encoded[0] += 1
-        next_ns += period_ns
-        time.sleep(max(0.0, (next_ns - now_ns()) / 1e9))
