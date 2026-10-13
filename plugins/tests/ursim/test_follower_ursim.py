@@ -44,6 +44,8 @@ STEP_S = 1.5
 MAX_SPEED_RAD_S = math.radians(60)  # la del programa del TP
 SPEED_MARGIN = 1.05  # margen de la medida: posición y timestamp de paquetes consecutivos
 STEP_REACHED_RAD = 0.01
+SILENT_S = 3.0  # PC sin escribir con la conexión abierta
+STILL_RAD = 1e-3
 
 pytestmark = [pytest.mark.ursim, pytest.mark.usefixtures("follower_program_playing")]
 
@@ -179,6 +181,30 @@ def test_disconnect_stops_the_program_on_the_robot(core: UrFollowerCore) -> None
     send_for(core, core.get_joints(), ENABLE_S)
     core.disconnect()
     wait_until(lambda: not program_running(), 2.0, "programa parado")
+
+
+def test_silent_pc_with_rtde_open_leaves_the_robot_still_and_playing(core: UrFollowerCore) -> None:
+    """Pausa de LeRobot o PC colgado: sin watchdog RTDE, el robot se queda en la última consigna."""
+    core.connect()
+    send_for(core, core.get_joints(), ENABLE_S)
+    q0 = core.get_joints()
+    t0_ns = now_ns()
+    while now_ns() - t0_ns < SILENT_S * 1e9:
+        # get_joints lanzaría FollowerStoppedError si el programa dejara de estar en Play.
+        assert max(abs(a - b) for a, b in zip(core.get_joints(), q0, strict=True)) < STILL_RAD
+        time.sleep(1 / SEND_HZ)
+    assert program_running()
+
+
+def test_rtde_cut_without_disconnect_leaves_the_program_playing(core: UrFollowerCore) -> None:
+    """Proceso matado o PC apagado: la conexión se corta sin enable=0 y el programa sigue en Play
+    con el robot quieto; se para con Stop en el TP."""
+    core.connect()
+    send_for(core, core.get_joints(), ENABLE_S)
+    core._connection().disconnect()  # cierra el socket del cliente RTDE sin escribir nada
+    time.sleep(SILENT_S)
+    assert program_running()
+    assert dashboard("safetystatus") == "Safetystatus: NORMAL"
 
 
 def test_program_stopped_from_pendant_stops_the_follower(core: UrFollowerCore) -> None:
