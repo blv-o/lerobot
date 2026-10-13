@@ -12,7 +12,7 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
-from fakes import START_Q_RAD, FakeRTDE, endless_packets, packet, packets
+from fakes import START_Q_RAD, FakeRTDE, endless_packets, packet, packets, ticking_packets
 from ur_core.clock import now_ns
 from ur_core.config import ConfigError, FollowerConfig, LowCostLeaderConfig, TeleopConfig, UrLeaderConfig
 from ur_core.leader import LeaderReadError, UrLeaderCore
@@ -25,14 +25,6 @@ LEADER_CONFIG = TeleopConfig(
     start_tolerance_rad=math.radians(2),
 )
 WAIT_S = 5.0
-
-
-def ticking_packets(q_rad: list[float] = START_Q_RAD, hz: float = 500) -> Iterator[dict[str, Any]]:
-    """Leader quieto (misma `actual_q`) con el `timestamp` del controlador avanzando."""
-    i = 0
-    while True:
-        yield packet(q_rad, heartbeat=0, timestamp_s=i / hz)
-        i += 1
 
 
 def moving_packets(hz: float = 500) -> Iterator[dict[str, Any]]:

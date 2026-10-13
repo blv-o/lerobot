@@ -5,9 +5,8 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from fakes import START_Q_RAD, FakeRTDE
+from fakes import START_Q_RAD, FakeRTDE, ticking_packets
 from lerobot_teleoperator_ur_leader import UrLeader, UrLeaderConfig
-from test_leader_core import ticking_packets
 from ur_core import JOINT_NAMES, ConfigError, LeaderReadError, UrLeaderCore, load_config
 
 TEMPLATE = Path(__file__).parents[2] / "configs" / "ur_config.yaml"

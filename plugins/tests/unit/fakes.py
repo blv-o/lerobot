@@ -66,6 +66,14 @@ def endless_packets(q_rad: list[float] = START_Q_RAD) -> Iterator[dict[str, Any]
         i += 1
 
 
+def ticking_packets(q_rad: list[float] = START_Q_RAD, hz: float = 500) -> Iterator[dict[str, Any]]:
+    """Leader quieto (misma `actual_q`) con el `timestamp` del controlador avanzando."""
+    i = 0
+    while True:
+        yield packet(q_rad, heartbeat=0, timestamp_s=i / hz)
+        i += 1
+
+
 class FakeRTDE:
     """Imita al cliente RTDE oficial (`rtde.rtde.RTDE`) en lo que usa el follower.
 
