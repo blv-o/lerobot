@@ -29,6 +29,7 @@ follower `http://127.0.0.2:6080/vnc.html`, leader `http://127.0.0.3:6080/vnc.htm
    - La primera vez se crea: programa nuevo con un nodo Script que carga `follower_control.script`
      (el compose ya lo monta en la carpeta de programas desde `plugins/tp/`).
    - No llamarlo `follower_control.urp`: al guardar `X.urp`, PolyScope genera `X.script` y pisa el script.
+   - Tras cambiar `follower_control.script`, volver a guardar el `.urp` en el TP: el `.urp` guarda una copia del script.
 
 Modo del follower (selector de la barra superior):
 - **Local** para teleoperar: en Remote, el Play del TP no funciona.
@@ -60,26 +61,23 @@ Copy-Item plugins\configs\ur_config.yaml mi_ur_config.yaml
    ```
    En Linux: `... 2>&1 | tee ur_session.log`.
 
-- `--fps=30`: casa con el tramo de interpolación del programa del TP (33 ms). Sin él, `lerobot-teleoperate` usa 60. En `lerobot-record` es `--dataset.fps` (por defecto 30).
+- `--fps=30`: casa con `TARGET_PERIOD_S` (33 ms) del programa del TP, que llega a cada consigna en 5 vueltas de 8 ms (40 ms). Sin él, `lerobot-teleoperate` usa 60. En `lerobot-record` es `--dataset.fps` (por defecto 30).
 - Pregunta `yes/no` dos veces (primero el leader, luego el follower). Con `yes` comprueba la posición; si algo falla, lo dice y vuelve a preguntar.
 - Con `no`: «arranque cancelado por el operador» y sale sin mover nada.
 - La pregunta del leader pide un programa de freedrive en Play: solo con un UR real. En URSim, contestar `yes` y mover el leader desde **Move**.
 
 ## 5. Parar
 
-- **Ctrl+C**: parada limpia. El programa del TP termina: otra vez **Play** antes de relanzar.
-- Si se cierra la consola, **Ctrl+Break** o el PC muere (la conexión se corta de golpe):
-  - El controlador para el programa del TP por sí solo.
-  - Antes de relanzar: **Play** en el TP.
-- Si el PC se cuelga o se cae la red (la conexión sigue abierta):
-  - El robot se queda quieto en la última consigna, con el programa en Play.
+- **Ctrl+C** o cerrar la consola: parada limpia. El programa del TP frena con `stopj` y termina. Otra vez **Play** antes de relanzar.
+- Si el PC deja de escribir sin esa parada (PC colgado, red caída, **Ctrl+Break**, proceso matado, PC apagado):
+  - El robot se queda quieto en la última consigna, con el programa en Play. Cortar la conexión RTDE no lo para.
   - Se para con **Stop** en el TP.
   - Antes de relanzar: **Stop** y **Play** en el TP.
 
 ## Problemas frecuentes
 
-- «el programa del follower no está en marcha: dale a Play en el TP» → **Play** en el follower.
-- «el programa del follower no está en ejecución» al empezar, tras un PC colgado o una red caída → **Stop** y **Play** en el TP. Tras cerrar la consola, basta **Play**.
+- «el programa del follower no está en marcha: dale a Play en el TP» → **Play** en el follower (también tras Ctrl+C o cerrar la consola: el programa terminó).
+- «el programa del follower no está en ejecución» al empezar, tras un PC colgado, una red caída o un proceso matado → **Stop** y **Play** en el TP.
 - «fuera de tolerancia» → llevar ese robot a la posición inicial desde **Move** y contestar `yes`.
 - Tests `ursim` con «Failed to execute: play» → el follower está apagado o en Local (sección 2).
 - `lerobot-calibrate`: no hay nada que calibrar; contestar `no`.

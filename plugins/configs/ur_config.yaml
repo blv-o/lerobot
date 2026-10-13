@@ -24,7 +24,7 @@ leader:
   #   direction: [normal, normal, normal, normal, normal, normal]   # normal | invertido, base..wrist_3
 
 follower:
-  type: ur3e                     # mismos modelos que el leader
+  type: ur3e                     # solo modelos UR
   ip: {sim: 127.0.0.2, real: 192.168.1.10}
   # Los ajustes del movimiento viven en el programa del TP (plugins/tp/follower_control.script); --fps=30.
 

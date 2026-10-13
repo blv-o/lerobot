@@ -14,7 +14,7 @@ La librería `lerobot` (`src/`) es la del original; la documentación, ejemplos 
 | `plugins/packages/lerobot_teleoperator_ur_leader/` | Teleoperador `ur_leader`: el UR en freedrive del que se lee la posición articular |
 | `plugins/packages/ur_core/` | Lógica común de ambos, con el cliente RTDE oficial de UR |
 | `plugins/tp/follower_control.script` | Programa del follower para el Teach Pendant: se carga como nodo Script y se le da a Play antes de cada sesión |
-| `plugins/configs/ur_config.yaml` | Configuración de ejemplo (IP de cada robot, frecuencia, límites) |
+| `plugins/configs/ur_config.yaml` | Configuración de ejemplo (IP de cada robot, posición inicial y tolerancia, frecuencia de lectura del leader) |
 | `plugins/ursim/` | Dos simuladores URSim en Docker para probar sin hardware |
 | `plugins/tests/` | Tests de los plugins |
 | `src/lerobot/common/train_utils.py` | Arreglo para que `lerobot-train` no falle en Windows al crear `checkpoints/last` |
