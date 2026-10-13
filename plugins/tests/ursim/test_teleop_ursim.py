@@ -3,7 +3,7 @@
 Mismo proceso que la CLI: adaptadores `UrLeader` y `UrFollower` con la confirmación respondida
 por `ask`, y el bucle de `teleop_loop` (observación, acción del leader, envío al follower) a
 `--fps=30` (el tramo de interpolación del programa del TP). Con carga de vídeo en marcha, porque
-el hilo de lectura del leader comparte el GIL con la codificación.
+el bucle de LeRobot comparte el GIL con la codificación.
 
 Solo para este test, el URSim leader se mueve con un URScript subido por 30002 (en un robot real
 lo mueve el operador en freedrive). El código de los plugins nunca escribe al leader.
