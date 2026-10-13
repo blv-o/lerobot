@@ -37,8 +37,10 @@ hb = 0
 
 # Esperar a que el PC escriba. Se espera un CAMBIO del contador, no un
 # valor: los registros guardan el ultimo aunque el PC se desconecte.
+# Y con enable=0 (la escritura de connect()): un enable=1 que ya estaba
+# (proceso anterior, o Stop y Play con el PC en marcha) nunca mueve el robot.
 v0 = read_input_integer_register(1)
-while read_input_integer_register(1) == v0:
+while read_input_integer_register(1) == v0 or read_input_integer_register(0) != 0:
 	servoj(q, 0, 0, DT_S, LOOKAHEAD_S, GAIN)
 	hb = hb + 1
 	write_output_integer_register(0, hb)
