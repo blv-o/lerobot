@@ -114,15 +114,28 @@ def read_pose(con: RtdeConnection, frequency_hz: float) -> list[float]:
         con.disconnect()
 
 
-def start_output(con: RtdeConnection, variables: list[str], types: list[str], frequency_hz: float) -> None:
-    """Conecta y arranca una receta de salida; los fallos del cliente oficial salen como RTDEException.
+def start_output(
+    con: RtdeConnection,
+    variables: list[str],
+    types: list[str],
+    frequency_hz: float,
+    inputs: tuple[list[str], list[str]] | None = None,
+) -> Any:
+    """Conecta, declara las recetas y arranca; los fallos del cliente oficial salen como RTDEException.
 
+    Devuelve el objeto de la receta de entrada (`inputs`: nombres y tipos), o None sin ella.
     El cliente oficial abre el socket antes de negociar el protocolo y, si la negociación falla,
     lo deja abierto: quien llama debe cerrar la conexión (su `disconnect()` es seguro sin socket).
     """
-    con.connect()
+    try:
+        con.connect()
+    except RTDEException as exc:
+        # El puerto acepta pero el controlador no negocia (Docker publica el puerto aunque URSim
+        # aún esté arrancando).
+        raise RTDEException(f"{exc} (¿el controlador todavía está arrancando?)") from exc
     try:
         output_ok = con.send_output_setup(variables, types, frequency=frequency_hz)
+        command = None if inputs is None else _input_setup(con, *inputs)
     except AttributeError as exc:
         # El cliente oficial hace `result.types` sobre la respuesta sin comprobar que llegó.
         raise RTDEException("el robot no respondió a la configuración RTDE") from exc
@@ -130,6 +143,23 @@ def start_output(con: RtdeConnection, variables: list[str], types: list[str], fr
         raise RTDEException(f"el robot rechazó la receta de salida {', '.join(variables)}")
     if not con.send_start():
         raise RTDEException("no se pudo iniciar la sincronización")
+    return command
+
+
+def _input_setup(con: RtdeConnection, variables: list[str], types: list[str]) -> Any:
+    busy = (
+        f"registros de entrada {', '.join(variables)} no disponibles "
+        "(¿los usa otro cliente RTDE o un bus de campo?)"
+    )
+    try:
+        command = con.send_input_setup(variables, types)
+    except ValueError as exc:
+        # El cliente oficial lanza ValueError al leer `IN_USE` en la respuesta, en vez de
+        # devolver None.
+        raise RTDEException(f"{busy}: {exc}") from exc
+    if command is None:  # tipos distintos a los pedidos
+        raise RTDEException(busy)
+    return command
 
 
 def receive_packet(con: RtdeConnection) -> Any:

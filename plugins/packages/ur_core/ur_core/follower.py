@@ -16,7 +16,7 @@ from rtde.rtde import RTDEException
 
 from ur_core.clock import now_ns
 from ur_core.config import N_JOINTS, TeleopConfig
-from ur_core.startup import RtdeConnection, check_pose, rtde_connection, start_pose_text
+from ur_core.startup import RtdeConnection, check_pose, rtde_connection, start_output, start_pose_text
 
 log = logging.getLogger("ur_core.follower")
 
@@ -161,20 +161,14 @@ class UrFollowerCore:
         log.info("follower: conectado y armado t_ns=%d", self._clock())
 
     def _arm(self) -> None:
-        rtde, ip = self._connection(), self._config.follower.ip
+        ip = self._config.follower.ip
         try:
-            rtde.connect()
+            self._command = start_output(
+                self._connection(), OUTPUT_NAMES, OUTPUT_TYPES, READ_HZ, inputs=(COMMAND_NAMES, COMMAND_TYPES)
+            )
         except (RTDEException, OSError) as exc:
-            # RTDEException: el puerto acepta pero el controlador no negocia el protocolo (Docker
-            # publica el puerto aunque URSim aún esté arrancando).
-            raise FollowerStartError(
-                f"no se puede conectar por RTDE a {ip}: {exc} (¿el controlador todavía está arrancando?)"
-            ) from exc
-        if not self._rtde_setup(rtde.send_output_setup, OUTPUT_NAMES, OUTPUT_TYPES, frequency=READ_HZ):
-            raise FollowerStartError(f"RTDE: el robot rechazó la receta de salida {OUTPUT_NAMES}")
-        self._command = self._input_setup()
-        if not self._rtde_setup(rtde.send_start):
-            raise FollowerStartError("RTDE: no se pudo iniciar la sincronización")
+            # OSError: `sock.sendall` del cliente oficial; RTDEException: el resto de sus fallos.
+            raise FollowerStartError(f"no se puede conectar por RTDE a {ip}: {exc}") from exc
         pkt = self._receive_arming()
         self._check_ready(pkt)
         try:
@@ -208,40 +202,6 @@ class UrFollowerCore:
         if pkt is None:  # el cliente oficial devuelve None tras su DEFAULT_TIMEOUT sin datos
             raise FollowerStartError(f"RTDE: sin datos del robot {ip} durante el armado")
         return pkt
-
-    def _rtde_setup(self, call: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-        """Una llamada de configuración del cliente oficial, con sus fallos como FollowerStartError.
-
-        Envuelve solo la llamada a la librería: un AttributeError de nuestro código no es "el robot
-        no respondió", es un error nuestro y tiene que verse como tal.
-        """
-        ip = self._config.follower.ip
-        try:
-            return call(*args, **kwargs)
-        except AttributeError as exc:
-            # El cliente oficial hace `result.types` sobre la respuesta sin comprobar que llegó:
-            # si el robot no contesta a tiempo lanza AttributeError en vez de devolver un error.
-            raise FollowerStartError(f"el robot {ip} no respondió a la configuración RTDE") from exc
-        except (RTDEException, OSError) as exc:
-            # `sock.sendall` lanza OSError; el cliente lanza RTDEException si el robot cierra.
-            raise FollowerStartError(
-                f"RTDE: se perdió la conexión con {ip} durante la configuración: {exc}"
-            ) from exc
-
-    def _input_setup(self) -> Any:
-        busy = (
-            "RTDE: registros de entrada input_double_register_0..5 / input_int_register_0..1 "
-            "no disponibles (¿los usa otro cliente RTDE o un bus de campo?)"
-        )
-        try:
-            command = self._rtde_setup(self._connection().send_input_setup, COMMAND_NAMES, COMMAND_TYPES)
-        except ValueError as exc:
-            # El cliente oficial lanza ValueError al leer `IN_USE` en la respuesta, en vez de
-            # devolver None. Solo aquí: en la receta de salida significaría otra cosa.
-            raise FollowerStartError(f"{busy}: {exc}") from exc
-        if command is None:  # tipos distintos a los pedidos
-            raise FollowerStartError(busy)
-        return command
 
     @staticmethod
     def _check_ready(pkt: Any) -> None:
