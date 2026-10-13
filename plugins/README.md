@@ -68,7 +68,8 @@ Copy-Item plugins\configs\ur_config.yaml mi_ur_config.yaml
 
 ## 5. Parar
 
-- **Ctrl+C** o cerrar la consola: parada limpia. El programa del TP frena con `stopj` y termina. Otra vez **Play** antes de relanzar.
+- **Ctrl+C**: parada limpia. El programa del TP frena con `stopj` y termina. Otra vez **Play** antes de relanzar.
+- Cerrar la consola: el programa del TP también se para (medido en URSim). Otra vez **Play** antes de relanzar.
 - Si el PC deja de escribir sin esa parada (PC colgado, red caída, **Ctrl+Break**, proceso matado, PC apagado):
   - El robot se queda quieto en la última consigna, con el programa en Play. Cortar la conexión RTDE no lo para.
   - Se para con **Stop** en el TP.
