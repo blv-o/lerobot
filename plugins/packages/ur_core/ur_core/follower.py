@@ -16,13 +16,17 @@ from rtde.rtde import RTDEException
 
 from ur_core.clock import now_ns
 from ur_core.config import N_JOINTS, TeleopConfig
-from ur_core.startup import RtdeConnection, check_pose, rtde_connection, start_output, start_pose_text
+from ur_core.startup import (
+    READ_HZ,
+    RtdeConnection,
+    check_pose,
+    rtde_connection,
+    start_output,
+    start_pose_text,
+)
 
 log = logging.getLogger("ur_core.follower")
 
-# El robot manda su estado cada 8 ms: leyendo a ese ritmo, la pose que graba LeRobot tiene como
-# mucho 8 ms.
-READ_HZ = 125
 # Tiempo interno de arranque, no un ajuste del operador: que el programa del TP empiece a latir.
 ARM_TIMEOUT_S = 6.0
 # Sin paquete nuevo en este tiempo, la conexión está perdida aunque siga abierta (cable caído).

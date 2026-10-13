@@ -16,8 +16,7 @@ leader:
   # --- solo leader UR ---
   # sim: plugins/ursim/docker-compose.yml. real: cambiar por la IP del robot.
   ip: {sim: 127.0.0.3, real: 192.168.1.11}
-  rtde_hz: 500                   # frecuencia de lectura RTDE del leader
-  # --- solo leader feetech | as5600 (en lugar de ip y rtde_hz) ---
+  # --- solo leader feetech | as5600 (en lugar de ip) ---
   # port: COM3                   # puerto serie (Linux: /dev/ttyACM0)
   # hz: 100                      # frecuencia de lectura del bus
   # mapping:

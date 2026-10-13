@@ -18,6 +18,9 @@ from ur_core.config import JOINT_NAMES
 log = logging.getLogger("ur_core.startup")
 
 RTDE_PORT = 30004
+# El robot manda su estado cada 8 ms: leyendo a ese ritmo, la pose que graba LeRobot tiene como
+# mucho 8 ms. Follower y leader leen igual.
+READ_HZ = 125
 
 
 class RtdeConnection(Protocol):

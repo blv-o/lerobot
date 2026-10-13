@@ -29,7 +29,7 @@ TEMPLATE = "plugins/configs/ur_config.yaml"
 
 # Claves que debe tener el YAML (las hojas valen None; solo importa la forma).
 # La sección `leader` depende de su `type`: ver `_leader_schema`.
-UR_LEADER_SCHEMA: dict[str, Any] = {"type": None, "ip": None, "rtde_hz": None, "timeout_ms": None}
+UR_LEADER_SCHEMA: dict[str, Any] = {"type": None, "ip": None, "timeout_ms": None}
 LOW_COST_LEADER_SCHEMA: dict[str, Any] = {
     "type": None,
     "port": None,
@@ -59,7 +59,6 @@ class ConfigError(ValueError):
 class UrLeaderConfig:
     type: str
     ip: str
-    rtde_hz: float
     timeout_s: float
 
 
@@ -205,7 +204,6 @@ def _check_leader(leader: dict[str, Any]) -> None:
     _check_positive("leader.timeout_ms", leader["timeout_ms"])
     if leader["type"] in UR_TYPES:
         _check_text("leader.ip", leader["ip"])
-        _check_positive("leader.rtde_hz", leader["rtde_hz"])
         return
     _check_text("leader.port", leader["port"])
     _check_positive("leader.hz", leader["hz"])
@@ -257,9 +255,7 @@ def _check_start_pose(pose: Any) -> None:
 def _build_leader(leader: dict[str, Any]) -> UrLeaderConfig | LowCostLeaderConfig:
     timeout_s = leader["timeout_ms"] / 1000
     if leader["type"] in UR_TYPES:
-        return UrLeaderConfig(
-            type=leader["type"], ip=leader["ip"], rtde_hz=leader["rtde_hz"], timeout_s=timeout_s
-        )
+        return UrLeaderConfig(type=leader["type"], ip=leader["ip"], timeout_s=timeout_s)
     return LowCostLeaderConfig(
         type=leader["type"],
         port=leader["port"],
