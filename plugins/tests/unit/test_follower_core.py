@@ -169,8 +169,8 @@ def test_connect_refuses_a_robot_that_is_not_ready(modes: dict[str, int], fragme
         ("send_input_setup", "entrada"),
         ("inputs_in_use", "bus de campo"),
         ("send_start", "iniciar"),
-        ("start_lost", "durante la configuración"),
-        ("setup_oserror", "durante la configuración"),
+        ("start_lost", "conectar"),
+        ("setup_oserror", "conectar"),
     ],
 )
 def test_rtde_setup_failures_give_a_readable_start_error_and_close_the_socket(
@@ -200,10 +200,10 @@ def test_our_own_attribute_error_during_setup_is_not_blamed_on_the_robot(
     respondió"; uno de nuestro código tiene que verse como lo que es."""
     rig = Rig()
 
-    def bug() -> Any:
+    def bug(*_args: Any, **_kwargs: Any) -> Any:
         raise AttributeError("bug nuestro")
 
-    monkeypatch.setattr(rig.core, "_input_setup", bug)
+    monkeypatch.setattr(follower_module, "start_output", bug)
     with pytest.raises(AttributeError, match="bug nuestro"):
         rig.core.connect()
     assert not rig.rtde.connected
