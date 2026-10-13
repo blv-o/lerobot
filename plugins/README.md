@@ -78,6 +78,7 @@ Copy-Item plugins\configs\ur_config.yaml mi_ur_config.yaml
 
 - «el programa del follower no está en marcha: dale a Play en el TP» → **Play** en el follower (también tras Ctrl+C o cerrar la consola: el programa terminó).
 - «el programa del follower no está en ejecución» al empezar, tras un PC colgado, una red caída o un proceso matado → **Stop** y **Play** en el TP.
+- «registros de entrada … no disponibles» → sigue vivo un proceso anterior (p. ej. tras un PC colgado): cerrarlo y relanzar.
 - «fuera de tolerancia» → llevar ese robot a la posición inicial desde **Move** y contestar `yes`.
 - Tests `ursim` con «Failed to execute: play» → el follower está apagado o en Local (sección 2).
 - `lerobot-calibrate`: no hay nada que calibrar; contestar `no`.
