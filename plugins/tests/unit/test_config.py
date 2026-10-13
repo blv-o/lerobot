@@ -287,7 +287,7 @@ def test_unknown_key_is_rejected(tmp_path: Path, dotted: str, value: Any) -> Non
 def test_motion_settings_are_rejected_because_they_live_in_the_robot_program(
     tmp_path: Path, section: str
 ) -> None:
-    """Velocidad, periodo y watchdog los fija el programa del TP: en el YAML no harían nada."""
+    """Velocidad e interpolación las fija solo el programa del TP: en el YAML no harían nada."""
     data = base()
     data["follower"][section] = {"hz": 125}
     with pytest.raises(ConfigError) as exc:
@@ -323,7 +323,8 @@ def test_out_of_range_value_is_rejected(tmp_path: Path, dotted: str, value: Any)
     ],
 )
 def test_non_positive_value_is_rejected(tmp_path: Path, dotted: str, value: Any) -> None:
-    """Una velocidad negativa haría derivar el follower sin parar y un periodo 0 rompe el bucle."""
+    """Con tolerancia ≤ 0 ningún robot pasaría el arranque y con `timeout_ms` ≤ 0 el leader
+    fallaría en cada lectura."""
     data = base()
     set_path(data, dotted, value)
     with pytest.raises(ConfigError) as exc:

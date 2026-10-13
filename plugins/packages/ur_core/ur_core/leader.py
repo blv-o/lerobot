@@ -122,7 +122,8 @@ class UrLeaderCore:
         return list(q_rad)
 
     def _read_loop(self, con: RtdeConnection, timestamp_s: float, stop: threading.Event) -> None:
-        """Único dueño de la conexión tras `connect()`: cerrarla desde otro hilo corta su `receive()`."""
+        """Único dueño de la conexión tras `connect()`: `disconnect()` solo marca `stop` y el hilo
+        la cierra al salir, tras volver de su `receive()`."""
         try:
             while not stop.is_set():
                 pkt = con.receive()
