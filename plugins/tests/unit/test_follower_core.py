@@ -123,6 +123,18 @@ def test_every_write_changes_the_counter() -> None:
     assert all(a != b for a, b in zip(counters, counters[1:], strict=False))
 
 
+def test_connect_rewrites_enable_0_with_a_new_counter_until_the_program_beats() -> None:
+    """El programa del TP se arma al ver un contador nuevo con enable=0, y solo late ya armado. Un
+    contador nuevo en cada paquete lo arma aunque el registro ya tuviera el valor de la primera
+    escritura (p. ej. de un arranque anterior que falló)."""
+    still = [packet(START_Q_RAD, heartbeat=7) for _ in range(10)]
+    rig = armed([*still, *packets(5)])
+    assert len(rig.rtde.sent) >= len(still)
+    assert set(rig.rtde.written_enable()) == {0}
+    counters = rig.counters()
+    assert len(set(counters)) == len(counters)
+
+
 def test_connect_returns_as_soon_as_the_heartbeat_changes() -> None:
     still = [packet(START_Q_RAD, heartbeat=7) for _ in range(10)]
     rig = armed([*still, *packets(5)])

@@ -68,8 +68,9 @@ def test_no_endless_loop_so_the_program_ends_when_disabled(script: str) -> None:
     assert "while True" not in script
 
 
-def test_heartbeat_written_in_the_three_loops(script: str) -> None:
-    """`connect()` del PC espera a ver latir el programa, esté en el bucle que esté."""
-    loops = script.split("\nwhile ")[1:]
+def test_heartbeat_only_once_armed(script: str) -> None:
+    """`connect()` del PC vuelve al ver latir el programa: si latiera antes de armarse, podría volver
+    sin que el programa hubiera visto el enable=0, y quedarse esperando para siempre."""
+    loops = [loop.split("\nend")[0] for loop in script.split("\nwhile ")[1:]]
     assert len(loops) == 3
-    assert all("write_output_integer_register(0, hb)" in loop.split("\nend")[0] for loop in loops)
+    assert ["write_output_integer_register(0, hb)" in loop for loop in loops] == [False, True, True]
