@@ -377,7 +377,9 @@ class UrFollowerCore:
                 self._write(self._last_q_rad, enable=0)
                 log.info("follower: parada pedida (disconnect) t_ns=%d", self._clock())
         except _ConnectionLostError as exc:
-            log.error("follower: no se pudo escribir enable=0 (Stop en el TP): %s", exc)
+            log.error(
+                "follower: no se pudo escribir enable=0 (Stop en el TP) t_ns=%d: %s", self._clock(), exc
+            )
         finally:
             self._close()
 
