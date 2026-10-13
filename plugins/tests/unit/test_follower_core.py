@@ -67,7 +67,7 @@ class Rig:
         self.clock.advance_s(dt_s)
 
     def counters(self) -> list[int]:
-        return [fields["input_int_register_1"] for _, fields in self.rtde.sent]
+        return [fields["input_int_register_1"] for fields in self.rtde.sent]
 
 
 def armed(pkts: Iterable[dict[str, Any] | None] | None = None) -> Rig:
@@ -106,7 +106,7 @@ def test_connect_declares_typed_recipes_at_125_hz() -> None:
 def test_connect_first_write_is_the_measured_pose_disabled() -> None:
     measured = offset(START_Q_RAD, 3, 0.01)
     rig = armed(packets(5, q_rad=measured))
-    first = rig.rtde.sent[0][1]
+    first = rig.rtde.sent[0]
     assert [first[f"input_double_register_{i}"] for i in range(6)] == measured
     assert first["input_int_register_0"] == 0
 
@@ -260,7 +260,7 @@ def test_send_joints_writes_target_enable_and_counter_in_one_packet_without_rece
     before = len(rig.rtde.sent)
     rig.core.send_joints(NEAR)
     assert len(rig.rtde.sent) == before + 1
-    fields = rig.rtde.sent[-1][1]
+    fields = rig.rtde.sent[-1]
     assert [fields[f"input_double_register_{i}"] for i in range(6)] == NEAR
     assert fields["input_int_register_0"] == 1
     assert rig.counters()[-1] != rig.counters()[-2]
@@ -404,7 +404,7 @@ def test_disconnect_writes_the_last_target_disabled_and_closes() -> None:
     rig = armed()
     rig.core.send_joints(NEAR)
     rig.core.disconnect()
-    last = rig.rtde.sent[-1][1]
+    last = rig.rtde.sent[-1]
     assert [last[f"input_double_register_{i}"] for i in range(6)] == NEAR
     assert last["input_int_register_0"] == 0
     assert not rig.rtde.connected and not rig.core.is_connected

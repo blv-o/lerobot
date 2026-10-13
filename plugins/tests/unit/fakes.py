@@ -110,7 +110,7 @@ class FakeRTDE:
         self.started = False
         self.output_setup: tuple[list[str], list[str], float] | None = None
         self.input_setups: list[tuple[list[str], list[str]]] = []
-        self.sent: list[tuple[int, dict[str, Any]]] = []  # (t_ns, campos escritos)
+        self.sent: list[dict[str, Any]] = []  # campos escritos en cada envío
 
     def connect(self) -> None:
         if "connect" in self._fail:
@@ -168,7 +168,7 @@ class FakeRTDE:
         for name, value in fields.items():
             if value is None:  # como `serialize.DataObject.pack` del cliente real
                 raise ValueError("Uninitialized parameter: " + name)
-        self.sent.append((self._now_ns(), fields))
+        self.sent.append(fields)
         return True
 
     def receive(self) -> SimpleNamespace | None:
@@ -211,4 +211,4 @@ class FakeRTDE:
 
     # --- consultas para los asserts -----------------------------------------------------
     def written_enable(self) -> list[int]:
-        return [fields["input_int_register_0"] for _, fields in self.sent if "input_int_register_0" in fields]
+        return [fields["input_int_register_0"] for fields in self.sent if "input_int_register_0" in fields]
