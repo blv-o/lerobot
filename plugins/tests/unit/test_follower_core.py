@@ -135,6 +135,24 @@ def test_connect_rewrites_enable_0_with_a_new_counter_until_the_program_beats() 
     assert len(set(counters)) == len(counters)
 
 
+def test_a_failed_write_while_waiting_for_the_heartbeat_is_a_start_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rig = Rig([packet(START_Q_RAD, heartbeat=7) for _ in range(10)])
+    send = rig.rtde.send
+
+    def fail_after_first(input_data: Any) -> Any:
+        if rig.rtde.sent:
+            raise ConnectionResetError("conexión reiniciada")
+        return send(input_data)
+
+    monkeypatch.setattr(rig.rtde, "send", fail_after_first)
+    with pytest.raises(FollowerStartError, match="se perdió la conexión RTDE"):
+        rig.core.connect()
+    assert len(rig.rtde.sent) == 1
+    assert not rig.core.is_connected and not rig.rtde.connected
+
+
 def test_connect_returns_as_soon_as_the_heartbeat_changes() -> None:
     still = [packet(START_Q_RAD, heartbeat=7) for _ in range(10)]
     rig = armed([*still, *packets(5)])
