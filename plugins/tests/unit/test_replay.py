@@ -75,7 +75,7 @@ def test_sine_session_runs_until_the_program_ends() -> None:
     core, rtde, clock = replay(trace)
     core.connect()
     stop = follow_until_stopped(core, clock)
-    assert "runtime_state=STOPPED" in str(stop)
+    assert "runtime_state=1" in str(stop)
     assert rtde.received == end + 1  # para en el mismo paquete en que el programa deja de correr
     assert set(rtde.written_enable()[1:]) == {1}
 
@@ -88,7 +88,7 @@ def test_program_stopped_from_pendant_stops_on_that_packet() -> None:
     core.connect()
     stop = follow_until_stopped(core, clock)
     assert 1 in rtde.written_enable()
-    assert "runtime_state=STOPPED" in str(stop)
+    assert "runtime_state=1" in str(stop)
     assert rtde.received == stopped + 1
     core.disconnect()
     assert rtde.written_enable()[-1] == 0

@@ -148,7 +148,7 @@ def test_connect_without_heartbeat_asks_to_press_play() -> None:
 
 @pytest.mark.parametrize(
     ("modes", "fragment"),
-    [({"robot_mode": 5}, "robot_mode"), ({"safety_mode": SAFETY_PROTECTIVE_STOP}, "PROTECTIVE_STOP")],
+    [({"robot_mode": 5}, "robot_mode"), ({"safety_mode": SAFETY_PROTECTIVE_STOP}, "safety_mode=3")],
     ids=["not_running", "protective_stop"],
 )
 def test_connect_refuses_a_robot_that_is_not_ready(modes: dict[str, int], fragment: str) -> None:
@@ -237,7 +237,7 @@ def test_relaunch_with_the_program_already_enabled_stops_on_the_first_call(call:
     deja de estar en Play tras el armado, la primera llamada lo ve (el fake no simula el script)."""
     rig = armed([*packets(ARM_PACKETS), *packets(30, runtime_state=RUNTIME_STOPPED)])
     rig.tick()
-    with pytest.raises(FollowerStoppedError, match="runtime_state=STOPPED"):
+    with pytest.raises(FollowerStoppedError, match="runtime_state=1"):
         call(rig.core)
     assert 1 not in rig.rtde.written_enable()
 
@@ -353,11 +353,11 @@ CALLS: list[Call] = [lambda core: core.get_joints(), lambda core: core.send_join
 @pytest.mark.parametrize(
     ("modes", "fragment"),
     [
-        ({"safety_mode": SAFETY_PROTECTIVE_STOP}, "PROTECTIVE_STOP"),
+        ({"safety_mode": SAFETY_PROTECTIVE_STOP}, "safety_mode=3"),
         ({"robot_mode": 5}, "robot_mode"),
-        ({"runtime_state": RUNTIME_STOPPED}, "runtime_state=STOPPED"),
-        ({"safety_mode": 6}, "SYSTEM_EMERGENCY_STOP"),
-        ({"safety_mode": 7}, "ROBOT_EMERGENCY_STOP"),
+        ({"runtime_state": RUNTIME_STOPPED}, "runtime_state=1"),
+        ({"safety_mode": 6}, "safety_mode=6"),
+        ({"safety_mode": 7}, "safety_mode=7"),
     ],
     ids=[
         "protective_stop",
@@ -556,7 +556,7 @@ def test_arming_enabling_and_stopping_are_logged_with_t_ns(caplog: pytest.LogCap
     assert len(messages) == 3
     assert "armado" in messages[0]
     assert "habilitado" in messages[1]
-    assert f"t_ns={stop_ns}" in messages[2] and "PROTECTIVE_STOP" in messages[2]
+    assert f"t_ns={stop_ns}" in messages[2] and "safety_mode=3" in messages[2]
 
 
 # --- comprobaciones de arranque --------------------------------------------------------------
