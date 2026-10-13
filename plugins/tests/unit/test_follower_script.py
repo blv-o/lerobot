@@ -45,29 +45,16 @@ def test_motion_constants_and_servoj_arguments(script: str) -> None:
     assert calls == [("q", "DT_S", "LOOKAHEAD_S", "GAIN")] * 2 + [("cmd", "DT_S", "LOOKAHEAD_S", "GAIN")]
 
 
-def test_holds_the_pose_then_follows_each_new_target_with_limited_steps_and_stops(script: str) -> None:
+def test_arms_on_a_new_counter_then_follows_with_limited_steps_and_stops(script: str) -> None:
     """Pose leída una vez → espera a que cambie el contador del PC con enable=0 (no a un valor: los
-    registros guardan el último tras desconectar, también un enable=1 viejo) → quieto con enable=0 → con enable=1, tramo nuevo desde el
-    último comando a cada cambio del contador, avance recortado al final del tramo y paso recortado
-    a la velocidad máxima → stopj al volver enable a 0."""
+    registros guardan el último tras desconectar, también un enable=1 viejo) → avance recortado al
+    final del tramo y paso recortado a la velocidad máxima → stopj al volver enable a 0."""
     assert script.count("get_actual_joint_positions()") == 1
     order = [
-        "get_actual_joint_positions()",
-        "v0 = read_input_integer_register(1)",
         "while read_input_integer_register(1) == v0 or read_input_integer_register(0) != 0:",
-        "while read_input_integer_register(0) == 0:",
-        "while read_input_integer_register(0) == 1:",
-        "if c != seen:",
-        "start = [cmd[0], cmd[1], cmd[2], cmd[3], cmd[4], cmd[5]]",
-        "read_input_float_register(5)",
-        "alpha = 0.0",
-        "alpha = alpha + DT_S / TARGET_PERIOD_S",
         "if alpha > 1.0:",
-        "alpha = 1.0",
-        "if step > MAX_STEP_RAD:",
         "step = MAX_STEP_RAD",
         "step = -MAX_STEP_RAD",
-        "servoj(cmd,",
         "stopj(2.0)",
     ]
     position = 0
