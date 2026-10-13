@@ -27,7 +27,7 @@ from conftest import (
 )
 from ur_core import FollowerStoppedError, UrFollowerCore
 from ur_core.clock import now_ns
-from ur_core.follower import OUTPUT_NAMES, OUTPUT_TYPES, READ_HZ
+from ur_core.follower import OUTPUT_NAMES, OUTPUT_TYPES, READ_HZ, FollowerStartError
 from ur_core.startup import RTDE_PORT, read_pose, rtde_connection
 
 SINE_AMPLITUDE_RAD = 0.2
@@ -239,3 +239,20 @@ def test_stop_and_play_while_lerobot_is_not_reading_never_moves_the_robot(core: 
     q_rad = read_pose(rtde_connection(FOLLOWER_IP), READ_HZ)
     assert max(abs(a - b) for a, b in zip(q_rad, q0, strict=True)) < STILL_RAD
     assert program_running()
+
+
+def test_relaunch_after_a_start_without_play_arms_and_moves(core: UrFollowerCore) -> None:
+    """Lanzar sin Play deja en el registro el contador de la primera escritura, el mismo con el que
+    empieza el proceso siguiente: tras dar Play, el siguiente `connect()` tiene que armarlo igual."""
+    dashboard("stop")
+    wait_until(lambda: not program_running(), 2.0, "programa parado")
+    with pytest.raises(FollowerStartError, match="dale a Play"):
+        UrFollowerCore(CONFIG).connect()
+    play_follower_program()
+    core.connect()
+    q0 = core.get_joints()
+    target = [*q0[:5], q0[5] + STEP_REACHED_RAD * 5]
+    send_for(core, q0, ENABLE_S)
+    send_for(core, target, STEP_S)
+    assert abs(core.get_joints()[5] - target[5]) < STEP_REACHED_RAD
+    send_for(core, q0, STEP_S)
