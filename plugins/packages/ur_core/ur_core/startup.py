@@ -12,6 +12,7 @@ from typing import Any, Protocol
 import rtde.rtde as rtde
 from rtde.rtde import RTDEException
 
+from ur_core.clock import now_ns
 from ur_core.config import JOINT_NAMES
 
 log = logging.getLogger("ur_core.startup")
@@ -65,7 +66,7 @@ def confirm_start(prompt: str, checks: Callable[[], list[str]], ask: Callable[[s
     `lerobot-record` no la captura, así que salía una traza larga por una respuesta normal.
     """
     if not confirm_and_check(prompt, checks, ask=ask):
-        log.warning("arranque cancelado por el operador")
+        log.warning("arranque cancelado por el operador t_ns=%d", now_ns())
         raise SystemExit("arranque cancelado por el operador")
 
 

@@ -3,6 +3,7 @@ from collections.abc import Callable
 from typing import Any
 
 from ur_core import JOINT_NAMES, UrFollowerCore, confirm_start, load_config
+from ur_core.clock import now_ns
 
 from lerobot.cameras import make_cameras_from_configs
 from lerobot.robots import Robot
@@ -92,4 +93,4 @@ class UrFollower(Robot):
             cam.disconnect()
         except Exception:
             # Se registra y se sigue: una cámara que no cierra no debe dejar el follower armado.
-            log.exception("ur_follower: no se pudo cerrar la cámara %s", key)
+            log.exception("ur_follower: no se pudo cerrar la cámara %s t_ns=%d", key, now_ns())
