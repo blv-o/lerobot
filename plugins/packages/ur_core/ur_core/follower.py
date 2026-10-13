@@ -47,7 +47,6 @@ SETPOINT_NAMES = [f"input_double_register_{i}" for i in range(N_JOINTS)]
 # nueva (no espera a un valor, porque los registros guardan el último tras desconectar).
 COMMAND_NAMES = [*SETPOINT_NAMES, "input_int_register_0", "input_int_register_1"]
 COMMAND_TYPES = ["DOUBLE"] * N_JOINTS + ["INT32", "INT32"]
-INT32_LIMIT = 2**31
 
 # Valores de RTDE (guía de RTDE de Universal Robots). Los motivos de parada dan el número: el TP
 # muestra su nombre.
@@ -83,7 +82,6 @@ class UrFollowerCore:
         self._counter = 0
         self._last_pkt: Any = None
         self._last_rx_ns = 0
-        self._last_q_rad: list[float] = []  # última consigna escrita
         self._enabled = False
         self._stop_reason = ""
 
@@ -124,7 +122,7 @@ class UrFollowerCore:
         if self._rtde is not None:
             return
         self._rtde = self._rtde_factory(self._config.follower.ip)
-        self._last_q_rad, self._enabled, self._stop_reason = [], False, ""
+        self._enabled, self._stop_reason = False, ""
         try:
             self._arm()
         except BaseException:
@@ -283,11 +281,14 @@ class UrFollowerCore:
         log.error("follower: parado t_ns=%d %s", self._clock(), reason)
         return FollowerStoppedError(reason)
 
-    def _write(self, q_rad: Sequence[float], enable: int) -> None:
-        for name, value in zip(SETPOINT_NAMES, q_rad, strict=True):
-            setattr(self._command, name, value)
+    def _write(self, q_rad: Sequence[float] | None, enable: int) -> None:
+        """Un paquete con consigna, enable y contador nuevo. `q_rad=None` repite la consigna anterior,
+        que el objeto de la receta conserva."""
+        if q_rad is not None:
+            for name, value in zip(SETPOINT_NAMES, q_rad, strict=True):
+                setattr(self._command, name, value)
         self._command.input_int_register_0 = enable
-        self._counter = (self._counter + 1) % INT32_LIMIT
+        self._counter += 1  # INT32: a 30 Hz tardaría más de 2 años en desbordar
         self._command.input_int_register_1 = self._counter
         # El cliente oficial devuelve None si no puede enviar, pero `sock.sendall` sí lanza
         # OSError (p. ej. conexión reiniciada).
@@ -297,7 +298,6 @@ class UrFollowerCore:
             raise _ConnectionLostError(f"se perdió la conexión RTDE: {exc}") from exc
         if not sent:
             raise _ConnectionLostError("se perdió la conexión RTDE: no se pudo escribir la consigna")
-        self._last_q_rad = list(q_rad)
 
     # --- parada -------------------------------------------------------------------------
     def disconnect(self) -> None:
@@ -310,7 +310,7 @@ class UrFollowerCore:
         try:
             if self._rtde.is_connected():
                 # La receta lleva siempre la consigna: repetir la última no pide ningún movimiento.
-                self._write(self._last_q_rad, enable=0)
+                self._write(None, enable=0)
                 log.info("follower: parada pedida (disconnect) t_ns=%d", self._clock())
         except _ConnectionLostError as exc:
             log.error(
