@@ -142,14 +142,23 @@ class UrFollowerCore:
             raise FollowerStartError(f"no se puede conectar por RTDE a {ip}: {exc}") from exc
         pkt = self._receive_arming()
         self._check_ready(pkt)
-        try:
-            # Consigna = pose actual y deshabilitado desde la primera escritura: nunca hay salto.
-            self._write(pkt.actual_q, enable=0)
-        except _ConnectionLostError as exc:
-            raise FollowerStartError(str(exc)) from exc
+        # Consigna = pose actual y deshabilitado desde la primera escritura: nunca hay salto.
+        self._write_disabled(pkt.actual_q)
         self._wait_for_heartbeat(pkt)
 
+    def _write_disabled(self, q_rad: Sequence[float] | None) -> None:
+        try:
+            self._write(q_rad, enable=0)
+        except _ConnectionLostError as exc:
+            raise FollowerStartError(str(exc)) from exc
+
     def _wait_for_heartbeat(self, pkt: Any) -> None:
+        """El programa del TP solo late ya armado, y se arma al ver un contador nuevo con enable=0.
+
+        Se reescribe enable=0 con un contador nuevo en cada paquete: así se arma aunque el registro
+        ya valiera lo de la primera escritura (otro proceso empezó con el mismo contador), y al volver
+        el programa ya está armado, antes de que llegue ningún enable=1.
+        """
         hb0 = pkt.output_int_register_0
         deadline_ns = self._clock() + round(ARM_TIMEOUT_S * 1e9)
         while pkt.output_int_register_0 == hb0:
@@ -159,6 +168,7 @@ class UrFollowerCore:
                     f"(heartbeat sin cambios en {ARM_TIMEOUT_S} s)"
                 )
             pkt = self._receive_arming()
+            self._write_disabled(None)
         self._last_pkt, self._last_rx_ns = pkt, self._clock()
 
     def _receive_arming(self) -> Any:

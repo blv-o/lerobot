@@ -7,7 +7,7 @@
 #    input_double_register_0..5  <- consigna articular (rad)
 #    input_int_register_0        <- enable (0/1)
 #    input_int_register_1        <- contador del PC (cambia en cada escritura)
-#    output_int_register_0       -> heartbeat (contador)
+#    output_int_register_0       -> heartbeat (contador; solo ya armado)
 #
 #  Ajustes del movimiento (solo viven aqui):
 #    DT_S             periodo de servoj (125 Hz)
@@ -39,11 +39,10 @@ hb = 0
 # valor: los registros guardan el ultimo aunque el PC se desconecte.
 # Y con enable=0 (la escritura de connect()): un enable=1 que ya estaba
 # (proceso anterior, o Stop y Play con el PC en marcha) nunca mueve el robot.
+# Sin heartbeat hasta armarse: connect() del PC vuelve al verlo latir.
 v0 = read_input_integer_register(1)
 while read_input_integer_register(1) == v0 or read_input_integer_register(0) != 0:
 	servoj(q, 0, 0, DT_S, LOOKAHEAD_S, GAIN)
-	hb = hb + 1
-	write_output_integer_register(0, hb)
 end
 
 while read_input_integer_register(0) == 0:
