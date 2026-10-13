@@ -209,6 +209,39 @@ def test_our_own_attribute_error_during_setup_is_not_blamed_on_the_robot(
     assert not rig.rtde.connected
 
 
+@pytest.mark.parametrize(
+    ("pkts", "fragment"),
+    [([None], "sin datos"), ([], "durante el armado")],
+    ids=["receive_returns_none", "receive_raises"],
+)
+def test_no_data_while_arming_is_a_start_error(pkts: list[dict[str, Any] | None], fragment: str) -> None:
+    """`receive()` del cliente oficial devuelve None tras su timeout y lanza al perder la conexión."""
+    rig = Rig(pkts)
+    with pytest.raises(FollowerStartError, match=fragment):
+        rig.core.connect()
+    assert not rig.core.is_connected and not rig.rtde.connected
+
+
+def test_connect_arms_in_reduced_mode() -> None:
+    rig = armed(packets(5, safety_mode=SAFETY_REDUCED))
+    assert rig.core.is_connected
+
+
+@pytest.mark.parametrize(
+    "call",
+    [lambda core: core.get_joints(), lambda core: core.send_joints(NEAR)],
+    ids=["get_joints", "send_joints"],
+)
+def test_relaunch_with_the_program_already_enabled_stops_on_the_first_call(call: Callable[..., Any]) -> None:
+    """Sin Stop y Play tras un PC colgado: el heartbeat late y `connect()` pasa, pero el enable=0
+    del armado termina el programa y la primera llamada lo ve."""
+    rig = armed([*packets(ARM_PACKETS), *packets(30, runtime_state=RUNTIME_STOPPED)])
+    rig.tick()
+    with pytest.raises(FollowerStoppedError, match="runtime_state=STOPPED"):
+        call(rig.core)
+    assert 1 not in rig.rtde.written_enable()
+
+
 def test_connect_twice_opens_a_single_connection() -> None:
     rig = armed()
     rig.core.connect()
@@ -323,8 +356,16 @@ CALLS: list[Call] = [lambda core: core.get_joints(), lambda core: core.send_join
         ({"safety_mode": SAFETY_PROTECTIVE_STOP}, "PROTECTIVE_STOP"),
         ({"robot_mode": 5}, "robot_mode"),
         ({"runtime_state": RUNTIME_STOPPED}, "runtime_state=STOPPED"),
+        ({"safety_mode": 6}, "SYSTEM_EMERGENCY_STOP"),
+        ({"safety_mode": 7}, "ROBOT_EMERGENCY_STOP"),
     ],
-    ids=["protective_stop", "robot_not_running", "program_stopped_from_pendant"],
+    ids=[
+        "protective_stop",
+        "robot_not_running",
+        "program_stopped_from_pendant",
+        "system_emergency_stop",
+        "robot_emergency_stop",
+    ],
 )
 def test_robot_stops_raise_with_reason_and_so_do_all_later_calls(
     modes: dict[str, int], fragment: str, call: Call

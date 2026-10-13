@@ -270,6 +270,8 @@ def test_low_cost_leader_values_are_validated(tmp_path: Path, dotted: str, value
         ("gripper_follower", {"type": "none"}),
         ("mapping", {"direction": ["normal"] * 6}),
         ("leader.port", "COM3"),
+        ("leader.mapping", {"direction": ["normal"] * 6}),
+        ("leader.hz", 100),
     ],
 )
 def test_unknown_key_is_rejected(tmp_path: Path, dotted: str, value: Any) -> None:
@@ -348,6 +350,12 @@ def test_start_tolerance_has_an_upper_limit(tmp_path: Path, tolerance_deg: float
     [
         ("start_pose_deg", [0, -90, float("nan"), -90, -90, 0]),
         ("start_pose_deg", [0, -90, 90, -90, -90, float("-inf")]),
+        ("leader.timeout_ms", float("inf")),
+        ("leader.timeout_ms", float("nan")),
+        ("leader.rtde_hz", float("inf")),
+        ("leader.rtde_hz", float("nan")),
+        ("start_tolerance_deg", float("inf")),
+        ("start_tolerance_deg", float("nan")),
     ],
 )
 def test_non_finite_value_is_rejected(tmp_path: Path, dotted: str, value: Any) -> None:
