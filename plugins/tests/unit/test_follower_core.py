@@ -211,7 +211,7 @@ def test_our_own_attribute_error_during_setup_is_not_blamed_on_the_robot(
 
 @pytest.mark.parametrize(
     ("pkts", "fragment"),
-    [([None], "sin datos"), ([], "durante el armado")],
+    [([None], "sin datos"), ([], "se perdió la conexión")],
     ids=["receive_returns_none", "receive_raises"],
 )
 def test_no_data_while_arming_is_a_start_error(pkts: list[dict[str, Any] | None], fragment: str) -> None:
