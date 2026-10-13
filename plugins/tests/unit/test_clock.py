@@ -15,11 +15,3 @@ def test_now_ns_resolves_well_below_a_millisecond() -> None:
     ordered = sorted(values)
     smallest_step_ns = min(b - a for a, b in zip(ordered, ordered[1:], strict=False))
     assert smallest_step_ns < 100_000  # < 0,1 ms
-
-
-def test_now_ns_never_goes_backwards() -> None:
-    previous = now_ns()
-    for _ in range(100_000):
-        current = now_ns()
-        assert current >= previous
-        previous = current

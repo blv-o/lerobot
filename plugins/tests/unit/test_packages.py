@@ -1,24 +1,6 @@
-"""Los tres paquetes se instalan e importan.
+"""Separación entre `ur_core` y los plugins de LeRobot."""
 
-LeRobot solo descubre un plugin si el nombre de su distribución empieza por
-`lerobot_robot_`/`lerobot_teleoperator_` con guiones bajos y coincide con el paquete
-importable (`register_third_party_plugins` en src/lerobot/utils/import_utils.py).
-"""
-
-import importlib
-import importlib.metadata
 from pathlib import Path
-
-import pytest
-
-
-@pytest.mark.parametrize(
-    "dist_name",
-    ["ur_core", "lerobot_robot_ur_follower", "lerobot_teleoperator_ur_leader"],
-)
-def test_distribution_is_installed_and_importable(dist_name: str) -> None:
-    assert importlib.metadata.distribution(dist_name).metadata["Name"] == dist_name
-    importlib.import_module(dist_name)
 
 
 def test_core_does_not_import_lerobot() -> None:

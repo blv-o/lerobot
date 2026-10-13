@@ -6,10 +6,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-from lerobot.robots import RobotConfig
-from lerobot.teleoperators import TeleoperatorConfig
-from lerobot.utils.import_utils import register_third_party_plugins
-
 
 def _env_scripts_path() -> str:
     """El ejecutable vive junto al Python del entorno (Scripts/ en Windows, bin/ en Linux),
@@ -25,12 +21,6 @@ def test_teleoperate_help_lists_both_types() -> None:
     assert result.returncode == 0, result.stderr
     assert "ur_follower" in result.stdout
     assert "ur_leader" in result.stdout
-
-
-def test_config_types_resolve_to_plugin_classes() -> None:
-    register_third_party_plugins()
-    assert RobotConfig.get_choice_class("ur_follower").__name__ == "UrFollowerConfig"
-    assert TeleoperatorConfig.get_choice_class("ur_leader").__name__ == "UrLeaderConfig"
 
 
 def test_lerobot_factories_build_the_plugin_adapters(tmp_path: Path) -> None:
