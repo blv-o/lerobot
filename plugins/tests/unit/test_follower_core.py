@@ -27,7 +27,7 @@ from ur_core.config import FollowerConfig, TeleopConfig, UrLeaderConfig
 from ur_core.follower import FollowerStartError, FollowerStoppedError, UrFollowerCore
 
 CONFIG = TeleopConfig(
-    leader=UrLeaderConfig(type="ur3e", ip="127.0.0.3", rtde_hz=500, timeout_s=0.1),
+    leader=UrLeaderConfig(type="ur3e", ip="127.0.0.3", timeout_s=0.1),
     follower=FollowerConfig(type="ur3e", ip="127.0.0.2"),
     start_pose_rad=tuple(START_Q_RAD),
     start_tolerance_rad=math.radians(2),

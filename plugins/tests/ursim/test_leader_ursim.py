@@ -10,12 +10,13 @@ import pytest
 from conftest import CONFIG, TraceRecorder
 from ur_core import UrLeaderCore
 from ur_core.leader import OUTPUT_NAMES, OUTPUT_TYPES
+from ur_core.startup import READ_HZ
 
 pytestmark = pytest.mark.ursim
 
 
 def test_leader_reads_joints_while_the_controller_timestamp_advances() -> None:
-    recorder = TraceRecorder(CONFIG.leader.ip, OUTPUT_NAMES, OUTPUT_TYPES, CONFIG.leader.rtde_hz)
+    recorder = TraceRecorder(CONFIG.leader.ip, OUTPUT_NAMES, OUTPUT_TYPES, READ_HZ)
     leader = UrLeaderCore(CONFIG)
     leader.connect()
     try:

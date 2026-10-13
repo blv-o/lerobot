@@ -21,7 +21,7 @@ from ur_core.leader import LeaderReadError, UrLeaderCore
 TRACES = Path(__file__).parents[1] / "traces"
 HZ = 125
 SEND_EVERY = 4  # LeRobot a 30 fps: una consigna cada ~4 paquetes
-LEADER = UrLeaderConfig(type="ur3e", ip="127.0.0.3", rtde_hz=500, timeout_s=0.1)
+LEADER = UrLeaderConfig(type="ur3e", ip="127.0.0.3", timeout_s=0.1)
 CONFIG = TeleopConfig(
     leader=LEADER,
     follower=FollowerConfig(type="ur3e", ip="127.0.0.2"),
@@ -98,7 +98,7 @@ def test_leader_times_out_when_the_recorded_timestamp_stops() -> None:
     """Leader quieto grabado en URSim; al acabarse la traza se repite su último paquete, como un
     controlador que siguiera mandando datos con el `timestamp` parado."""
     trace = load_trace("leader_still")
-    rtde = FakeRTDE(itertools.chain(trace, itertools.repeat(trace[-1])), hz=LEADER.rtde_hz)
+    rtde = FakeRTDE(itertools.chain(trace, itertools.repeat(trace[-1])), hz=HZ)
     leader = UrLeaderCore(CONFIG, rtde_factory=lambda _ip: rtde)
     leader.connect()
     try:

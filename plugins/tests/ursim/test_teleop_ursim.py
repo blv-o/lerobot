@@ -27,7 +27,7 @@ from test_follower_ursim import DELAY_LIMIT_S, MAX_SEARCHED_DELAY_MS, SHAPE_RMS_
 from ur_core import JOINT_NAMES
 from ur_core.clock import now_ns
 from ur_core.follower import RUNTIME_PLAYING
-from ur_core.startup import RTDE_PORT
+from ur_core.startup import READ_HZ, RTDE_PORT
 
 pytestmark = [pytest.mark.ursim, pytest.mark.usefixtures("follower_program_playing")]
 
@@ -101,7 +101,7 @@ def run_leader_script(script: str) -> None:
     con = rtde.RTDE(LEADER_IP, RTDE_PORT)
     con.connect()
     try:
-        assert con.send_output_setup(["runtime_state"], ["UINT32"], frequency=CONFIG.leader.rtde_hz)
+        assert con.send_output_setup(["runtime_state"], ["UINT32"], frequency=READ_HZ)
         assert con.send_start()
         send_leader_script(script)
         deadline_ns = now_ns() + round(LEADER_SCRIPT_TIMEOUT_S * 1e9)

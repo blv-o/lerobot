@@ -21,7 +21,6 @@ BASE: dict[str, Any] = {
     "leader": {
         "type": "ur3e",
         "ip": {"sim": LEADER_SIM_IP, "real": LEADER_REAL_IP},
-        "rtde_hz": 500,
         "timeout_ms": 100,
     },
     "follower": {
@@ -37,7 +36,6 @@ LEAF_KEYS = [
     "profile",
     "leader.type",
     "leader.ip",
-    "leader.rtde_hz",
     "leader.timeout_ms",
     "follower.type",
     "follower.ip",
@@ -107,8 +105,8 @@ def test_plain_field_has_same_value_in_both_profiles(tmp_path: Path, profile: st
 def test_sim_real_form_works_in_nested_fields(tmp_path: Path) -> None:
     data = base()
     data["profile"] = "real"
-    data["leader"]["rtde_hz"] = {"sim": 125, "real": 500}
-    assert load(tmp_path, data).leader.rtde_hz == 500
+    data["leader"]["timeout_ms"] = {"sim": 100, "real": 200}
+    assert load(tmp_path, data).leader.timeout_s == pytest.approx(0.2)
 
 
 def test_values_are_converted_to_radians_and_seconds(tmp_path: Path) -> None:
@@ -117,7 +115,6 @@ def test_values_are_converted_to_radians_and_seconds(tmp_path: Path) -> None:
         (0.0, -math.pi / 2, math.pi / 2, -math.pi / 2, -math.pi / 2, 0.0)
     )
     assert config.start_tolerance_rad == pytest.approx(math.radians(2))
-    assert config.leader.rtde_hz == 500
     assert config.leader.timeout_s == pytest.approx(0.1)
 
 
@@ -237,7 +234,7 @@ def test_low_cost_leader_keys_are_required(tmp_path: Path, dotted: str) -> None:
     assert exc.value.field == dotted
 
 
-@pytest.mark.parametrize(("dotted", "value"), [("leader.ip", "127.0.0.3"), ("leader.rtde_hz", 500)])
+@pytest.mark.parametrize(("dotted", "value"), [("leader.ip", "127.0.0.3")])
 def test_ur_only_keys_are_rejected_with_low_cost_leader(tmp_path: Path, dotted: str, value: Any) -> None:
     """Una clave de leader UR en un leader low-cost no se ignora: el YAML estaría mezclando tipos."""
     data = low_cost_base()
@@ -272,6 +269,7 @@ def test_low_cost_leader_values_are_validated(tmp_path: Path, dotted: str, value
         ("leader.port", "COM3"),
         ("leader.mapping", {"direction": ["normal"] * 6}),
         ("leader.hz", 100),
+        ("leader.rtde_hz", 500),  # el leader UR se lee al ritmo fijo del código
     ],
 )
 def test_unknown_key_is_rejected(tmp_path: Path, dotted: str, value: Any) -> None:
@@ -299,7 +297,6 @@ def test_motion_settings_are_rejected_because_they_live_in_the_robot_program(
 @pytest.mark.parametrize(
     ("dotted", "value"),
     [
-        ("leader.rtde_hz", 0),
         ("start_pose_deg", [0, -90, 90, -90, -90]),
         ("start_pose_deg", [0, -90, 90, -90, -90, 0, 0]),
         ("start_pose_deg", [0, -90, 90, -90, -90, "a"]),
@@ -353,8 +350,6 @@ def test_start_tolerance_has_an_upper_limit(tmp_path: Path, tolerance_deg: float
         ("start_pose_deg", [0, -90, 90, -90, -90, float("-inf")]),
         ("leader.timeout_ms", float("inf")),
         ("leader.timeout_ms", float("nan")),
-        ("leader.rtde_hz", float("inf")),
-        ("leader.rtde_hz", float("nan")),
         ("start_tolerance_deg", float("inf")),
         ("start_tolerance_deg", float("nan")),
     ],
