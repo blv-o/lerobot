@@ -49,37 +49,10 @@ COMMAND_NAMES = [*SETPOINT_NAMES, "input_int_register_0", "input_int_register_1"
 COMMAND_TYPES = ["DOUBLE"] * N_JOINTS + ["INT32", "INT32"]
 INT32_LIMIT = 2**31
 
-# Valores de RTDE (guía de RTDE de Universal Robots), con nombre para que los motivos se lean.
-ROBOT_MODES = {
-    -1: "NO_CONTROLLER",
-    0: "DISCONNECTED",
-    1: "CONFIRM_SAFETY",
-    2: "BOOTING",
-    3: "POWER_OFF",
-    4: "POWER_ON",
-    5: "IDLE",
-    6: "BACKDRIVE",
-    7: "RUNNING",
-    8: "UPDATING_FIRMWARE",
-}
-SAFETY_MODES = {
-    1: "NORMAL",
-    2: "REDUCED",
-    3: "PROTECTIVE_STOP",
-    4: "RECOVERY",
-    5: "SAFEGUARD_STOP",
-    6: "SYSTEM_EMERGENCY_STOP",
-    7: "ROBOT_EMERGENCY_STOP",
-    8: "VIOLATION",
-    9: "FAULT",
-    10: "VALIDATE_JOINT_ID",
-    11: "UNDEFINED_SAFETY_MODE",
-    12: "AUTOMATIC_MODE_SAFEGUARD_STOP",
-    13: "SYSTEM_THREE_POSITION_ENABLING_STOP",
-}
-RUNTIME_STATES = {0: "STOPPING", 1: "STOPPED", 2: "PLAYING", 3: "PAUSING", 4: "PAUSED", 5: "RESUMING"}
+# Valores de RTDE (guía de RTDE de Universal Robots). Los motivos de parada dan el número: el TP
+# muestra su nombre.
 ROBOT_MODE_RUNNING = 7
-SAFETY_MODES_OK = (1, 2)  # REDUCED es funcionamiento normal con límites más bajos
+SAFETY_MODES_OK = (1, 2)  # NORMAL y REDUCED: REDUCED es funcionamiento normal con límites más bajos
 RUNTIME_PLAYING = 2
 
 
@@ -93,10 +66,6 @@ class FollowerStoppedError(RuntimeError):
 
 class _ConnectionLostError(Exception):
     """Interna: al armar es un fallo de arranque, en teleoperación una parada y en `disconnect` se registra."""
-
-
-def _named(table: dict[int, str], value: int) -> str:
-    return f"{table.get(value, '?')} ({value})"
 
 
 class UrFollowerCore:
@@ -212,12 +181,12 @@ class UrFollowerCore:
         # `runtime_state` no: el programa del TP puede arrancar mientras se espera su heartbeat.
         if pkt.robot_mode != ROBOT_MODE_RUNNING:
             raise FollowerStartError(
-                f"el follower no está listo: robot_mode={_named(ROBOT_MODES, pkt.robot_mode)} "
+                f"el follower no está listo: robot_mode={pkt.robot_mode} "
                 "(encender y soltar frenos desde el Teach Pendant)"
             )
         if pkt.safety_mode not in SAFETY_MODES_OK:
             raise FollowerStartError(
-                f"el follower no está listo: safety_mode={_named(SAFETY_MODES, pkt.safety_mode)}"
+                f"el follower no está listo: safety_mode={pkt.safety_mode} (ver el TP)"
             )
 
     # --- teleoperación ------------------------------------------------------------------
@@ -301,14 +270,11 @@ class UrFollowerCore:
     @staticmethod
     def _robot_fault(pkt: Any) -> str:
         if pkt.safety_mode not in SAFETY_MODES_OK:
-            return f"parada de seguridad del follower: safety_mode={_named(SAFETY_MODES, pkt.safety_mode)}"
+            return f"parada de seguridad del follower: safety_mode={pkt.safety_mode} (ver el TP)"
         if pkt.robot_mode != ROBOT_MODE_RUNNING:
-            return f"el follower dejó de estar en marcha: robot_mode={_named(ROBOT_MODES, pkt.robot_mode)}"
+            return f"el follower dejó de estar en marcha: robot_mode={pkt.robot_mode} (ver el TP)"
         if pkt.runtime_state != RUNTIME_PLAYING:
-            return (
-                "el programa del follower no está en ejecución: "
-                f"runtime_state={_named(RUNTIME_STATES, pkt.runtime_state)}"
-            )
+            return f"el programa del follower no está en ejecución: runtime_state={pkt.runtime_state} (ver el TP)"
         return ""
 
     def _stop(self, reason: str) -> FollowerStoppedError:
