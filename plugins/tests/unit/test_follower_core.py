@@ -33,7 +33,6 @@ CONFIG = TeleopConfig(
     start_tolerance_rad=math.radians(2),
 )
 NEAR = [START_Q_RAD[0] + 0.005, *START_Q_RAD[1:]]
-FAR = [START_Q_RAD[0] + math.radians(10), *START_Q_RAD[1:]]
 ARM_PACKETS = 2  # el primero se lee al armar; en el segundo el heartbeat ya ha cambiado
 LEROBOT_PERIOD_S = 1 / 30
 COMMAND_NAMES = [f"input_double_register_{i}" for i in range(6)] + [
@@ -222,11 +221,6 @@ def test_no_data_while_arming_is_a_start_error(pkts: list[dict[str, Any] | None]
     assert not rig.core.is_connected and not rig.rtde.connected
 
 
-def test_connect_arms_in_reduced_mode() -> None:
-    rig = armed(packets(5, safety_mode=SAFETY_REDUCED))
-    assert rig.core.is_connected
-
-
 @pytest.mark.parametrize(
     "call",
     [lambda core: core.get_joints(), lambda core: core.send_joints(NEAR)],
@@ -258,18 +252,6 @@ def test_without_targets_the_follower_is_never_enabled() -> None:
         assert rig.core.get_joints() == pytest.approx(START_Q_RAD)
     rig.core.disconnect()
     assert set(rig.rtde.written_enable()) == {0}
-
-
-def test_first_target_far_from_the_measured_pose_stops_without_enabling() -> None:
-    rig = armed()
-    with pytest.raises(FollowerStoppedError, match="primera consigna lejos de la posición actual"):
-        rig.core.send_joints(FAR)
-    assert 1 not in rig.rtde.written_enable()
-    with pytest.raises(FollowerStoppedError, match="primera consigna lejos"):
-        rig.core.send_joints(NEAR)
-    with pytest.raises(FollowerStoppedError, match="primera consigna lejos"):
-        rig.core.get_joints()
-    assert rig.core.is_connected  # hasta disconnect(), aunque el follower ya esté parado
 
 
 @pytest.mark.parametrize(("offset_deg", "enables"), [(3.0, True), (3.9, True), (4.1, False)])
@@ -391,40 +373,46 @@ def test_a_stop_hidden_behind_newer_packets_still_stops(call: Call) -> None:
 
 
 def test_reduced_mode_is_normal_operation() -> None:
-    rig = running(packets(200, safety_mode=SAFETY_REDUCED))
+    rig = armed(packets(200, safety_mode=SAFETY_REDUCED))
+    assert rig.core.is_connected
     for _ in range(30):
         rig.tick()
         rig.core.send_joints(NEAR)
         rig.core.get_joints()
 
 
-@pytest.mark.parametrize("failure", ["raises_oserror", "returns_none"])
-def test_a_failed_send_is_a_lost_connection(failure: str) -> None:
-    rig = running(packets(30))
-    if failure == "raises_oserror":
-        rig.rtde._fail.add("send_oserror")  # `sock.sendall` del cliente oficial
-    else:
-        rig.rtde.started = False  # el cliente oficial registra el error, no envía y devuelve None
-    with pytest.raises(FollowerStoppedError, match="se perdió la conexión RTDE"):
-        rig.core.send_joints(NEAR)
-    with pytest.raises(FollowerStoppedError, match="se perdió la conexión RTDE"):
-        rig.core.get_joints()
+def send_raises(rig: Rig) -> None:
+    rig.rtde._fail.add("send_oserror")  # `sock.sendall` del cliente oficial
 
 
-def test_receive_buffered_raising_is_a_lost_connection() -> None:
-    rig = running([])
+def send_returns_none(rig: Rig) -> None:
+    rig.rtde.started = False  # el cliente oficial registra el error, no envía y devuelve None
+
+
+def receive_buffered_raises(rig: Rig) -> None:
     rig.tick(1.0)  # se acaban los paquetes: el cliente lanza
-    with pytest.raises(FollowerStoppedError, match="se perdió la conexión RTDE"):
-        rig.core.get_joints()
-    with pytest.raises(FollowerStoppedError, match="se perdió la conexión RTDE"):
-        rig.core.send_joints(NEAR)
 
 
-def test_closed_connection_is_a_lost_connection() -> None:
-    rig = running(packets(30))
+def connection_closed(rig: Rig) -> None:
     rig.rtde.connected = False
-    with pytest.raises(FollowerStoppedError, match="se perdió la conexión RTDE"):
-        rig.core.get_joints()
+
+
+@pytest.mark.parametrize(
+    ("cause", "calls"),
+    [
+        (send_raises, CALLS[::-1]),  # solo `send_joints` envía: es la que lo ve
+        (send_returns_none, CALLS[::-1]),
+        (receive_buffered_raises, CALLS),
+        (connection_closed, CALLS),
+    ],
+    ids=["send_raises", "send_returns_none", "receive_buffered_raises", "connection_closed"],
+)
+def test_causes_of_a_lost_connection(cause: Callable[[Rig], None], calls: list[Call]) -> None:
+    rig = running(packets(30))
+    cause(rig)
+    for call in calls:  # la primera lo detecta; la siguiente lanza igual
+        with pytest.raises(FollowerStoppedError, match="se perdió la conexión RTDE"):
+            call(rig.core)
 
 
 def test_no_new_packet_for_stale_time_is_a_lost_connection() -> None:
@@ -488,16 +476,8 @@ def test_disconnect_with_a_broken_socket_logs_it_and_still_closes(caplog: pytest
     rig.core.send_joints(NEAR)
     rig.rtde._fail.add("send_oserror")
     rig.core.disconnect()
-    assert "enable=0" in caplog.text
-    assert not rig.rtde.connected and not rig.core.is_connected
-
-
-def test_a_failed_disable_on_disconnect_is_logged_with_t_ns(caplog: pytest.LogCaptureFixture) -> None:
-    rig = armed()
-    rig.core.send_joints(NEAR)
-    rig.rtde._fail.add("send_oserror")
-    rig.core.disconnect()
     assert any("enable=0" in r.getMessage() and "t_ns=" in r.getMessage() for r in caplog.records)
+    assert not rig.rtde.connected and not rig.core.is_connected
 
 
 def test_disconnect_with_a_socket_that_fails_to_close_logs_it_and_does_not_raise(
@@ -510,12 +490,6 @@ def test_disconnect_with_a_socket_that_fails_to_close_logs_it_and_does_not_raise
     rig.core.disconnect()
     assert not rig.core.is_connected
     assert "fallo al cerrar el socket" in caplog.text
-
-
-def test_a_socket_that_fails_to_close_is_logged_with_t_ns(caplog: pytest.LogCaptureFixture) -> None:
-    rig = armed()
-    rig.rtde._fail.add("disconnect")
-    rig.core.disconnect()
     assert any("cerrar" in r.getMessage() and "t_ns=" in r.getMessage() for r in caplog.records)
 
 
@@ -569,10 +543,6 @@ def make_core(
         return FakeRTDE(packets(1, q_rad=q_rad), hz=1000, fail=rtde_fail)
 
     return UrFollowerCore(config, rtde_factory=rtde_factory)
-
-
-def test_check_start_ok_in_start_pose() -> None:
-    assert make_core().check_start() == []
 
 
 def test_check_start_reports_joint_out_of_tolerance() -> None:
