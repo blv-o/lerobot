@@ -494,6 +494,13 @@ def test_disconnect_with_a_socket_that_fails_to_close_logs_it_and_does_not_raise
     assert "fallo al cerrar el socket" in caplog.text
 
 
+def test_a_socket_that_fails_to_close_is_logged_with_t_ns(caplog: pytest.LogCaptureFixture) -> None:
+    rig = armed()
+    rig.rtde._fail.add("disconnect")
+    rig.core.disconnect()
+    assert any("cerrar" in r.getMessage() and "t_ns=" in r.getMessage() for r in caplog.records)
+
+
 def test_follower_opens_no_socket_besides_the_rtde_client(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ni script por 30002 ni comandos al Dashboard (29999): el programa del TP lo gobierna todo."""
     opened: list[Any] = []

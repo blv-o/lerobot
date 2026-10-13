@@ -12,6 +12,7 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
+import ur_core.leader as leader_module
 from fakes import START_Q_RAD, FakeRTDE, endless_packets, packet, packets, ticking_packets
 from ur_core.clock import now_ns
 from ur_core.config import ConfigError, FollowerConfig, LowCostLeaderConfig, TeleopConfig, UrLeaderConfig
@@ -141,6 +142,33 @@ def test_lost_connection_raises(make_leader: Any) -> None:
         leader.read_joints()
     assert leader.is_connected  # hasta disconnect(), aunque se perdiera la conexión
     assert not rig.connections[0].connected
+
+
+@pytest.mark.parametrize(
+    ("pkts", "fragment"),
+    [
+        (lambda: iter(packets(5, hz=LEADER.rtde_hz)), "se perdió la conexión"),
+        (lambda: iter([packet(START_Q_RAD, 0), {"timestamp": 1.0}]), "error inesperado"),
+    ],
+    ids=["lost_connection", "unexpected_error"],
+)
+def test_reader_thread_errors_are_logged_with_t_ns(
+    make_leader: Any, caplog: pytest.LogCaptureFixture, pkts: Any, fragment: str
+) -> None:
+    leader = make_leader(Rig(pkts))
+    leader.connect()
+    wait_until(lambda: not leader._thread.is_alive(), "el hilo de lectura termina")
+    assert any(fragment in r.getMessage() and "t_ns=" in r.getMessage() for r in caplog.records)
+
+
+def test_a_reader_thread_that_does_not_stop_is_logged_with_t_ns(
+    make_leader: Any, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(leader_module, "JOIN_TIMEOUT_S", 0.0)
+    leader = make_leader(Rig(hz=2))  # el hilo pasa 0,5 s en cada `receive()`
+    leader.connect()
+    leader.disconnect()
+    assert any("no terminó" in r.getMessage() and "t_ns=" in r.getMessage() for r in caplog.records)
 
 
 def test_read_joints_before_connect_raises() -> None:
