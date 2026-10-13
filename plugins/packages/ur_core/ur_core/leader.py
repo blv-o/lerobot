@@ -133,9 +133,9 @@ class UrLeaderCore:
                     self._latest = (list(pkt.actual_q), now_ns())
         except (OSError, RTDEException) as exc:
             self._error = f"se perdió la conexión RTDE con el leader {self._leader.ip}: {exc}"
-            log.error("leader: %s", self._error)
+            log.error("leader: t_ns=%d %s", now_ns(), self._error)
         except Exception as exc:
-            log.exception("leader: error inesperado en el hilo de lectura")
+            log.exception("leader: error inesperado en el hilo de lectura t_ns=%d", now_ns())
             self._error = f"error inesperado leyendo el leader: {exc!r}"
         finally:
             con.disconnect()
@@ -148,6 +148,8 @@ class UrLeaderCore:
         self._thread.join(timeout=JOIN_TIMEOUT_S)
         if self._thread.is_alive():
             log.error(
-                "leader: el hilo de lectura no terminó en %s s; se abandona (es daemon)", JOIN_TIMEOUT_S
+                "leader: el hilo de lectura no terminó en %s s; se abandona (es daemon) t_ns=%d",
+                JOIN_TIMEOUT_S,
+                now_ns(),
             )
         self._thread = None

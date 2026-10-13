@@ -390,7 +390,7 @@ class UrFollowerCore:
         try:
             self._connection().disconnect()
         except OSError:
-            log.exception("follower: fallo al cerrar la conexión RTDE")
+            log.exception("follower: fallo al cerrar la conexión RTDE t_ns=%d", self._clock())
         finally:
             self._rtde = None
 
