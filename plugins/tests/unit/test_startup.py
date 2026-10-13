@@ -4,7 +4,7 @@ import math
 from collections.abc import Callable
 
 import pytest
-from ur_core.startup import confirm_and_check, pose_errors
+from ur_core.startup import confirm_and_check, confirm_start, pose_errors
 
 START_RAD = [0.0, -math.pi / 2, math.pi / 2, -math.pi / 2, -math.pi / 2, 0.0]
 TOL_RAD = math.radians(2)
@@ -60,3 +60,9 @@ def test_pose_error_names_robot_joint_and_degrees_with_decimal_comma() -> None:
         "follower base: 3,0° fuera de tolerancia",
         "follower wrist_2: 5,3° fuera de tolerancia",
     ]
+
+
+def test_cancel_by_the_operator_is_logged_with_t_ns(caplog: pytest.LogCaptureFixture) -> None:
+    with pytest.raises(SystemExit):
+        confirm_start("¿Continuar?", lambda: [], ask=answers("no"))
+    assert any("cancelado" in r.getMessage() and "t_ns=" in r.getMessage() for r in caplog.records)

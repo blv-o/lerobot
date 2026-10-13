@@ -249,3 +249,12 @@ def test_with_the_real_core_arms_moves_reads_and_stops(tmp_path: Path) -> None:
         robot.disconnect()
     assert follower.written_enable() == [0, 1, 0]
     assert not follower.connected
+
+
+def test_a_camera_that_fails_to_close_is_logged_with_t_ns(caplog: pytest.LogCaptureFixture) -> None:
+    class BrokenCamera:
+        def disconnect(self) -> None:
+            raise OSError("cámara desenchufada")
+
+    UrFollower._disconnect_camera("front", BrokenCamera())
+    assert any("cámara front" in r.getMessage() and "t_ns=" in r.getMessage() for r in caplog.records)
