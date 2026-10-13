@@ -21,13 +21,14 @@ RUNTIME_PLAYING = 2
 RUNTIME_STOPPED = 1
 
 START_Q_RAD = [0.0, -math.pi / 2, math.pi / 2, -math.pi / 2, -math.pi / 2, 0.0]
+ROBOT_HZ = 125  # el robot manda su estado cada 8 ms
 
 
 class FakeClock:
     """Reloj en ns que solo avanza cuando el test (o `FakeRTDE`) lo pide: nada duerme."""
 
-    def __init__(self, start_ns: int = 1_000_000_000) -> None:
-        self.now_ns = start_ns
+    def __init__(self) -> None:
+        self.now_ns = 1_000_000_000
 
     def __call__(self) -> int:
         return self.now_ns
@@ -54,9 +55,9 @@ def packet(
     }
 
 
-def packets(n: int, q_rad: list[float] = START_Q_RAD, hz: float = 125, **modes: int) -> list[dict[str, Any]]:
+def packets(n: int, q_rad: list[float] = START_Q_RAD, **modes: int) -> list[dict[str, Any]]:
     """`n` paquetes de un robot quieto en `q_rad` con el heartbeat latiendo."""
-    return [packet(q_rad, heartbeat=i, timestamp_s=i / hz, **modes) for i in range(n)]
+    return [packet(q_rad, heartbeat=i, timestamp_s=i / ROBOT_HZ, **modes) for i in range(n)]
 
 
 def endless_packets(q_rad: list[float] = START_Q_RAD) -> Iterator[dict[str, Any]]:
@@ -66,45 +67,27 @@ def endless_packets(q_rad: list[float] = START_Q_RAD) -> Iterator[dict[str, Any]
         i += 1
 
 
-def ticking_packets(q_rad: list[float] = START_Q_RAD, hz: float = 500) -> Iterator[dict[str, Any]]:
+def ticking_packets(q_rad: list[float] = START_Q_RAD) -> Iterator[dict[str, Any]]:
     """Leader quieto (misma `actual_q`) con el `timestamp` del controlador avanzando."""
     i = 0
     while True:
-        yield packet(q_rad, heartbeat=0, timestamp_s=i / hz)
+        yield packet(q_rad, heartbeat=0, timestamp_s=i / ROBOT_HZ)
         i += 1
 
 
 class FakeRTDE:
-    """Imita al cliente RTDE oficial (`rtde.rtde.RTDE`) en lo que usa el follower.
+    """Imita al cliente RTDE oficial (`rtde.rtde.RTDE`) en lo que usan follower y leader.
 
-    - `receive()` entrega el siguiente paquete (un dict, o `None` = timeout del cliente real).
-      Con `clock` avanza ese reloj `1/hz`; sin él, duerme `1/hz` de verdad (tests con hilos).
-      Al acabarse los paquetes lanza `RTDEException`, como el cliente real al perder la conexión.
-    - `receive_buffered()` entrega, uno por llamada, los paquetes que ya han llegado: el paquete
-      `k` llega `(k + 1)/hz` después de `send_start` (con `clock`, o con `now_ns()` sin él), y
-      `None` cuando no queda ninguno. Una entrada `None` de la lista es un hueco: en ese periodo
-      no llega nada. Al acabarse los paquetes lanza `RTDEException` una vez y desde entonces
-      devuelve `None` con `is_connected()` falso, como el cliente real al perder la conexión.
-    - `fail` simula los fallos que el cliente real devuelve como valor, no como excepción:
-      `send_input_setup` → `None`, `send_output_setup`/`send_start` → `False`.
-      Y los que lanza: `connect` → `ConnectionRefusedError`; `connect_protocol` → `RTDEException`
-      con el socket ya abierto (el puerto acepta pero el controlador no negocia, p. ej. URSim
-      arrancando); `setup_timeout` → `AttributeError` en `send_output_setup`/`send_input_setup`
-      (el cliente real hace `result.types` sobre una respuesta que no llegó); `inputs_in_use` →
-      `ValueError` en `send_input_setup` (el cliente real al ver `IN_USE` en la respuesta);
-      `start_lost` → `RTDEException` en `send_start` (conexión perdida en plena configuración);
-      `setup_oserror` → `ConnectionResetError` en `send_output_setup` y `send_oserror` → lo mismo
-      en `send` (lo lanza `sock.sendall`); `disconnect` → `OSError` en `disconnect` (lo lanza
-      `sock.close` del cliente real).
-    - `send()` sin sincronización activa (antes de `send_start`, tras `disconnect` o tras perder la
-      conexión) no envía y devuelve None; con un campo de la receta sin valor lanza ValueError.
+    El paquete `k` llega `(k + 1)/hz` después de `send_start`, con el reloj `clock` o el real.
+    Una entrada `None` es un periodo sin paquete; al acabarse, lanza `RTDEException` como el
+    cliente real al perder la conexión. `fail` activa por nombre los fallos del cliente real.
     """
 
     def __init__(
         self,
         packets: Iterable[dict[str, Any] | None],
         clock: FakeClock | None = None,
-        hz: float = 125,
+        hz: float = ROBOT_HZ,
         fail: Iterable[str] = (),
     ) -> None:
         self._packets = iter(packets)
@@ -189,9 +172,7 @@ class FakeRTDE:
         pkt = self._next_packet()
         return None if pkt is None else SimpleNamespace(**pkt)
 
-    def receive_buffered(
-        self, binary: bool = False, buffer_limit: int | None = None
-    ) -> SimpleNamespace | None:
+    def receive_buffered(self) -> SimpleNamespace | None:
         while self.connected and self._arrival_ns(self.received) <= self._now_ns():
             pkt = self._next_packet()
             if pkt is not None:
