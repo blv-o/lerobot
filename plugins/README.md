@@ -68,17 +68,19 @@ Copy-Item plugins\configs\ur_config.yaml mi_ur_config.yaml
 
 ## 5. Parar
 
-- **Ctrl+C**: parada limpia. El programa del TP frena con `stopj` y termina. Otra vez **Play** antes de relanzar.
-- Cerrar la consola: el programa del TP también se para (medido en URSim). Otra vez **Play** antes de relanzar.
+- Parar siempre con **Ctrl+C**: parada limpia. El programa del TP frena con `stopj` y termina.
 - Si el PC deja de escribir sin esa parada (PC colgado, red caída, **Ctrl+Break**, proceso matado, PC apagado):
   - El robot se queda quieto en la última consigna, con el programa en Play. Cortar la conexión RTDE no lo para.
   - Se para con **Stop** en el TP.
-  - Antes de relanzar: **Stop** y **Play** en el TP.
+- Cerrar la terminal depende de la terminal:
+  - Warp manda una interrupción, como Ctrl+C: parada limpia.
+  - La ventana clásica de PowerShell aborta el proceso sin parada: el robot queda quieto en Play.
+- Antes de relanzar, en todos los casos: **Stop** y **Play** en el TP.
 
 ## Problemas frecuentes
 
-- «el programa del follower no está en marcha: dale a Play en el TP» → **Play** en el follower (también tras Ctrl+C o cerrar la consola: el programa terminó).
-- «el programa del follower no está en ejecución» al empezar, tras un PC colgado, una red caída o un proceso matado → **Stop** y **Play** en el TP.
+- «el programa del follower no está en marcha: dale a Play en el TP» → **Play** en el follower.
+- «el programa del follower no está en ejecución» al empezar: el programa seguía de la sesión anterior → **Stop** y **Play** en el TP.
 - «registros de entrada … no disponibles» → sigue vivo un proceso anterior (p. ej. tras un PC colgado): cerrarlo y relanzar.
 - «fuera de tolerancia» → llevar ese robot a la posición inicial desde **Move** y contestar `yes`.
 - Tests `ursim` con «Failed to execute: play» → el follower está apagado o en Local (sección 2).
