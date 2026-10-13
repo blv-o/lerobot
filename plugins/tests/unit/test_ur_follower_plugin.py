@@ -240,5 +240,7 @@ def test_with_the_real_core_arms_moves_reads_and_stops(tmp_path: Path) -> None:
         assert [robot.get_observation()[key] for key in JOINT_KEYS] == pytest.approx(START_Q_RAD)
     finally:
         robot.disconnect()
-    assert follower.written_enable() == [0, 1, 0]
+    enables = follower.written_enable()
+    # connect() repite enable=0 hasta que el programa late: se cuentan los cambios, no las escrituras.
+    assert [e for i, e in enumerate(enables) if i == 0 or e != enables[i - 1]] == [0, 1, 0]
     assert not follower.connected

@@ -77,7 +77,9 @@ def test_sine_session_runs_until_the_program_ends() -> None:
     stop = follow_until_stopped(core, clock)
     assert "runtime_state=1" in str(stop)
     assert rtde.received == end + 1  # para en el mismo paquete en que el programa deja de correr
-    assert set(rtde.written_enable()[1:]) == {1}
+    enables = rtde.written_enable()
+    armed = enables.index(1)  # connect() repite enable=0 hasta que el programa late
+    assert set(enables[:armed]) == {0} and set(enables[armed:]) == {1}
 
 
 def test_program_stopped_from_pendant_stops_on_that_packet() -> None:
