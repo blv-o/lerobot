@@ -136,17 +136,23 @@ def start_output(
         # El puerto acepta pero el controlador no negocia (Docker publica el puerto aunque URSim
         # aún esté arrancando).
         raise RTDEException(f"{exc} (¿el controlador todavía está arrancando?)") from exc
-    try:
-        output_ok = con.send_output_setup(variables, types, frequency=frequency_hz)
-        command = None if inputs is None else _input_setup(con, *inputs)
-    except AttributeError as exc:
-        # El cliente oficial hace `result.types` sobre la respuesta sin comprobar que llegó.
-        raise RTDEException("el robot no respondió a la configuración RTDE") from exc
+    output_ok = _setup(con.send_output_setup, variables, types, frequency=frequency_hz)
+    command = None if inputs is None else _input_setup(con, *inputs)
     if not output_ok:
         raise RTDEException(f"el robot rechazó la receta de salida {', '.join(variables)}")
     if not con.send_start():
         raise RTDEException("no se pudo iniciar la sincronización")
     return command
+
+
+def _setup(call: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    """Una llamada de configuración del cliente oficial. Envuelve solo esa llamada: un
+    AttributeError de nuestro código es un error nuestro, no «el robot no respondió»."""
+    try:
+        return call(*args, **kwargs)
+    except AttributeError as exc:
+        # El cliente oficial hace `result.types` sobre la respuesta sin comprobar que llegó.
+        raise RTDEException("el robot no respondió a la configuración RTDE") from exc
 
 
 def _input_setup(con: RtdeConnection, variables: list[str], types: list[str]) -> Any:
@@ -155,7 +161,7 @@ def _input_setup(con: RtdeConnection, variables: list[str], types: list[str]) ->
         "(¿los usa otro cliente RTDE o un bus de campo?)"
     )
     try:
-        command = con.send_input_setup(variables, types)
+        command = _setup(con.send_input_setup, variables, types)
     except ValueError as exc:
         # El cliente oficial lanza ValueError al leer `IN_USE` en la respuesta, en vez de
         # devolver None.
