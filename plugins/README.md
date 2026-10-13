@@ -68,7 +68,10 @@ Copy-Item plugins\configs\ur_config.yaml mi_ur_config.yaml
 ## 5. Parar
 
 - **Ctrl+C**: parada limpia. El programa del TP termina: otra vez **Play** antes de relanzar.
-- Si el PC muere, se cuelga o se cierra la consola sin `disconnect()` (también **Ctrl+Break**):
+- Si se cierra la consola, **Ctrl+Break** o el PC muere (la conexión se corta de golpe):
+  - El controlador para el programa del TP por sí solo.
+  - Antes de relanzar: **Play** en el TP.
+- Si el PC se cuelga o se cae la red (la conexión sigue abierta):
   - El robot se queda quieto en la última consigna, con el programa en Play.
   - Se para con **Stop** en el TP.
   - Antes de relanzar: **Stop** y **Play** en el TP.
@@ -76,7 +79,7 @@ Copy-Item plugins\configs\ur_config.yaml mi_ur_config.yaml
 ## Problemas frecuentes
 
 - «el programa del follower no está en marcha: dale a Play en el TP» → **Play** en el follower.
-- «el programa del follower no está en ejecución» al empezar, tras una sesión cortada sin `disconnect()` → **Stop** y **Play** en el TP.
+- «el programa del follower no está en ejecución» al empezar, tras un PC colgado o una red caída → **Stop** y **Play** en el TP. Tras cerrar la consola, basta **Play**.
 - «fuera de tolerancia» → llevar ese robot a la posición inicial desde **Move** y contestar `yes`.
 - Tests `ursim` con «Failed to execute: play» → el follower está apagado o en Local (sección 2).
 - `lerobot-calibrate`: no hay nada que calibrar; contestar `no`.
