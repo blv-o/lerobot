@@ -46,15 +46,15 @@ def test_motion_constants_and_servoj_arguments(script: str) -> None:
 
 
 def test_holds_the_pose_then_follows_each_new_target_with_limited_steps_and_stops(script: str) -> None:
-    """Pose leída una vez → espera a que cambie el contador del PC (no a un valor: los registros
-    guardan el último tras desconectar) → quieto con enable=0 → con enable=1, tramo nuevo desde el
+    """Pose leída una vez → espera a que cambie el contador del PC con enable=0 (no a un valor: los
+    registros guardan el último tras desconectar, también un enable=1 viejo) → quieto con enable=0 → con enable=1, tramo nuevo desde el
     último comando a cada cambio del contador, avance recortado al final del tramo y paso recortado
     a la velocidad máxima → stopj al volver enable a 0."""
     assert script.count("get_actual_joint_positions()") == 1
     order = [
         "get_actual_joint_positions()",
         "v0 = read_input_integer_register(1)",
-        "while read_input_integer_register(1) == v0:",
+        "while read_input_integer_register(1) == v0 or read_input_integer_register(0) != 0:",
         "while read_input_integer_register(0) == 0:",
         "while read_input_integer_register(0) == 1:",
         "if c != seen:",
