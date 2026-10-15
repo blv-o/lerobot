@@ -128,6 +128,24 @@ def test_lost_connection_raises_and_is_logged_with_t_ns(caplog: pytest.LogCaptur
     assert any("se perdió la conexión" in r.getMessage() and "t_ns=" in r.getMessage() for r in caplog.records)
 
 
+@pytest.mark.xfail(strict=True, reason="pendiente: mensajes con qué hacer")
+@pytest.mark.parametrize(
+    "pkts", [endless_packets, lambda: iter(packets(5))], ids=["frozen_timestamp", "lost_connection"]
+)
+def test_every_read_error_tells_the_operator_what_to_do(pkts: Any) -> None:
+    rig = connected(pkts)
+    rig.tick(1.0)
+    with pytest.raises(LeaderReadError, match="comprueba el programa de freedrive y el cable del leader$"):
+        rig.leader.read_joints()
+
+
+@pytest.mark.xfail(strict=True, reason="pendiente: mensajes con qué hacer")
+def test_a_failed_connect_tells_what_to_do_and_is_logged_with_t_ns(caplog: pytest.LogCaptureFixture) -> None:
+    with pytest.raises(LeaderReadError, match="comprueba el programa de freedrive y el cable del leader$"):
+        Rig(fail=("connect",)).leader.connect()
+    assert any("t_ns=" in r.getMessage() for r in caplog.records)
+
+
 def test_read_joints_before_connect_raises() -> None:
     with pytest.raises(RuntimeError, match="connect"):
         UrLeaderCore(LEADER_CONFIG).read_joints()

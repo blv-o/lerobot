@@ -212,6 +212,20 @@ def test_rtde_setup_failures_give_a_readable_start_error_and_close_the_socket(
     assert not rig.rtde.connected  # el cliente oficial deja el socket abierto si falla la negociación
 
 
+@pytest.mark.xfail(strict=True, reason="pendiente: mensajes con qué hacer")
+def test_registers_in_use_tell_the_operator_what_to_do() -> None:
+    with pytest.raises(FollowerStartError, match="cierra el proceso anterior"):
+        Rig(fail=("inputs_in_use",)).core.connect()
+
+
+@pytest.mark.xfail(strict=True, reason="pendiente: mensajes con qué hacer")
+def test_a_failed_connect_is_logged_with_t_ns(caplog: pytest.LogCaptureFixture) -> None:
+    """Sin log, el motivo solo sale en la traza de LeRobot, sin la marca de tiempo de la sesión."""
+    with pytest.raises(FollowerStartError):
+        Rig(packets(5, robot_mode=5)).core.connect()
+    assert any("robot_mode=5" in r.getMessage() and "t_ns=" in r.getMessage() for r in caplog.records)
+
+
 def test_a_failure_to_close_does_not_hide_the_start_error(caplog: pytest.LogCaptureFixture) -> None:
     """`sock.close` del cliente oficial puede lanzar OSError: el operador tiene que ver por qué no
     arrancó, no el fallo al cerrar."""
@@ -390,6 +404,19 @@ def test_robot_stops_raise_with_reason_and_so_do_all_later_calls(
         with pytest.raises(FollowerStoppedError, match=fragment):
             later(rig.core)
     assert rig.core.is_connected
+
+
+@pytest.mark.xfail(strict=True, reason="pendiente: mensajes con qué hacer")
+@pytest.mark.parametrize(
+    "tail",
+    [packets(30, safety_mode=SAFETY_PROTECTIVE_STOP), packets(2)],
+    ids=["robot_stop", "lost_connection"],
+)
+def test_every_stop_tells_the_operator_what_to_do(tail: list[dict[str, Any]]) -> None:
+    rig = running(tail)
+    rig.tick(2.0)
+    with pytest.raises(FollowerStoppedError, match="Stop y Play en el TP antes de relanzar$"):
+        rig.core.get_joints()
 
 
 @pytest.mark.parametrize("call", CALLS, ids=["get_joints", "send_joints"])
