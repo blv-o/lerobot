@@ -60,7 +60,8 @@ def follow_until_stopped(core: UrFollowerCore, clock: FakeClock) -> FollowerStop
 
 @pytest.mark.parametrize("name", ["follower_sine", "follower_stopped_from_pendant"])
 def test_arms_when_the_real_script_starts_beating(name: str) -> None:
-    """En la traza el heartbeat ya late desde el principio: el follower arma en su primer cambio."""
+    """El registro guarda el último heartbeat de la sesión anterior; el programa late al armarse y
+    el follower arma en el primer cambio."""
     trace = load_trace(name)
     script_start = first_change(trace, "output_int_register_0")
     core, rtde, _ = replay(trace)
