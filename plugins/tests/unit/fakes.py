@@ -102,6 +102,7 @@ class FakeRTDE:
         self.output_setup: tuple[list[str], list[str], float] | None = None
         self.input_setups: list[tuple[list[str], list[str]]] = []
         self.sent: list[dict[str, Any]] = []  # campos escritos en cada envío
+        self.buffer_limits: list[int | None] = []  # `buffer_limit` de cada `receive_buffered`
 
     def connect(self) -> None:
         if "connect" in self._fail:
@@ -172,7 +173,8 @@ class FakeRTDE:
         pkt = self._next_packet()
         return None if pkt is None else SimpleNamespace(**pkt)
 
-    def receive_buffered(self) -> SimpleNamespace | None:
+    def receive_buffered(self, binary: bool = False, buffer_limit: int | None = None) -> SimpleNamespace | None:
+        self.buffer_limits.append(buffer_limit)
         while self.connected and self._arrival_ns(self.received) <= self._now_ns():
             pkt = self._next_packet()
             if pkt is not None:

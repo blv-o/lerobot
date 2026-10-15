@@ -466,6 +466,17 @@ def test_a_long_pause_drains_the_backlog_without_a_false_stale_stop() -> None:
     rig.core.send_joints(NEAR)
 
 
+@pytest.mark.xfail(strict=True, reason="pendiente: vaciado a trozos")
+def test_the_backlog_is_drained_in_bounded_chunks() -> None:
+    """Sin límite, el cliente oficial copia todo su buffer en cada paquete: tras 5 min sin leer,
+    el primer tick tardaría ~15 s en vaciarlo."""
+    rig = armed()
+    rig.tick(30.0)
+    rig.core.get_joints()
+    assert rig.rtde.buffer_limits
+    assert all(isinstance(limit, int) and limit > 0 for limit in rig.rtde.buffer_limits)
+
+
 # --- desconexión ---------------------------------------------------------------------------
 
 

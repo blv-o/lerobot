@@ -84,6 +84,17 @@ def test_receive_is_never_called_after_connect(monkeypatch: pytest.MonkeyPatch) 
         rig.leader.read_joints()
 
 
+@pytest.mark.xfail(strict=True, reason="pendiente: vaciado a trozos")
+def test_the_backlog_is_drained_in_bounded_chunks() -> None:
+    """P. ej. el leader sin leer mientras se contesta la pregunta del follower: sin límite, el
+    cliente oficial copia todo su buffer en cada paquete y el primer tick se congela."""
+    rig = connected()
+    rig.tick(30.0)
+    rig.leader.read_joints()
+    limits = rig.connections[0].buffer_limits
+    assert limits and all(isinstance(limit, int) and limit > 0 for limit in limits)
+
+
 def test_still_leader_with_advancing_timestamp_keeps_reading() -> None:
     """En freedrive el leader puede estar quieto: lo que cuenta es el `timestamp`, no `actual_q`."""
     rig = connected(ticking_packets)
