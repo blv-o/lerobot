@@ -5,6 +5,7 @@ test avanza el reloj, como llegarían al socket entre dos llamadas de LeRobot. N
 """
 
 import dataclasses
+import logging
 import math
 import socket
 from collections.abc import Iterator
@@ -232,3 +233,13 @@ def test_low_cost_leader_type_is_rejected() -> None:
     )
     with pytest.raises(ConfigError, match="leader.type"):
         UrLeaderCore(dataclasses.replace(LEADER_CONFIG, leader=low_cost))
+
+
+@pytest.mark.xfail(strict=True, reason="pendiente: log del leader")
+def test_connect_and_disconnect_are_logged_with_t_ns(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.INFO, logger="ur_core.leader"):
+        rig = connected()
+        rig.leader.disconnect()
+    messages = [r.getMessage() for r in caplog.records if "t_ns=" in r.getMessage()]
+    assert any("conectado" in m for m in messages)
+    assert any("cerrado" in m for m in messages)
