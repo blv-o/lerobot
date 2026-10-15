@@ -244,3 +244,11 @@ def test_connect_and_disconnect_are_logged_with_t_ns(caplog: pytest.LogCaptureFi
     messages = [r.getMessage() for r in caplog.records if "t_ns=" in r.getMessage()]
     assert any("conectado" in m for m in messages)
     assert any("cerrado" in m for m in messages)
+
+
+@pytest.mark.xfail(strict=True, reason="pendiente: cierre que falla al conectar")
+def test_a_failure_to_close_does_not_hide_the_connect_error() -> None:
+    """`sock.close` del cliente oficial puede lanzar OSError: el operador tiene que ver por qué no
+    conectó el leader, no el fallo al cerrar."""
+    with pytest.raises(LeaderReadError, match="no se puede leer el leader"):
+        Rig(fail=("connect_protocol", "disconnect")).leader.connect()
