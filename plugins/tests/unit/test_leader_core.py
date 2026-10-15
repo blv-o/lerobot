@@ -126,7 +126,9 @@ def test_lost_connection_raises_and_is_logged_with_t_ns(caplog: pytest.LogCaptur
         with pytest.raises(LeaderReadError, match="se perdió la conexión"):
             rig.leader.read_joints()
     assert rig.leader.is_connected  # hasta disconnect(), aunque se perdiera la conexión
-    assert any("se perdió la conexión" in r.getMessage() and "t_ns=" in r.getMessage() for r in caplog.records)
+    assert any(
+        "se perdió la conexión" in r.getMessage() and "t_ns=" in r.getMessage() for r in caplog.records
+    )
 
 
 @pytest.mark.parametrize(

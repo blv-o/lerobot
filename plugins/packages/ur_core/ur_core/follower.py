@@ -197,9 +197,7 @@ class UrFollowerCore:
                 "(encender y soltar frenos desde el Teach Pendant)"
             )
         if pkt.safety_mode not in SAFETY_MODES_OK:
-            raise FollowerStartError(
-                f"el follower no está listo: safety_mode={pkt.safety_mode} (ver el TP)"
-            )
+            raise FollowerStartError(f"el follower no está listo: safety_mode={pkt.safety_mode} (ver el TP)")
 
     # --- teleoperación ------------------------------------------------------------------
     def send_joints(self, q_rad: Sequence[float]) -> None:

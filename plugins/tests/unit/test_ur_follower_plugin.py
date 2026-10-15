@@ -219,7 +219,9 @@ def test_disconnect_closes_the_core_and_does_not_raise_when_a_camera_fails(
     assert any("cámara front" in r.getMessage() and "t_ns=" in r.getMessage() for r in caplog.records)
 
 
-def test_ctrl_c_while_closing_a_camera_still_disarms_the_follower(robot: UrFollower, calls: list[str]) -> None:
+def test_ctrl_c_while_closing_a_camera_still_disarms_the_follower(
+    robot: UrFollower, calls: list[str]
+) -> None:
     """Un segundo Ctrl+C mientras se cierra una cámara: el follower tiene que recibir enable=0 igual."""
     robot.cameras = {"front": FakeCamera("front", calls, fail="disconnect_interrupted")}
     robot.connect()

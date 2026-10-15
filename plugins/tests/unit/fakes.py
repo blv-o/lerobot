@@ -173,7 +173,9 @@ class FakeRTDE:
         pkt = self._next_packet()
         return None if pkt is None else SimpleNamespace(**pkt)
 
-    def receive_buffered(self, binary: bool = False, buffer_limit: int | None = None) -> SimpleNamespace | None:
+    def receive_buffered(
+        self, binary: bool = False, buffer_limit: int | None = None
+    ) -> SimpleNamespace | None:
         self.buffer_limits.append(buffer_limit)
         while self.connected and self._arrival_ns(self.received) <= self._now_ns():
             pkt = self._next_packet()

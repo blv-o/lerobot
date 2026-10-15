@@ -334,7 +334,7 @@ def test_unreadable_yaml_names_its_absolute_path(
 @pytest.mark.parametrize(
     ("content", "reason"),
     [
-        ("leader: [ur3e\n".encode(), "YAML mal escrito"),
+        (b"leader: [ur3e\n", "YAML mal escrito"),
         ("# posición inicial\nprofile: sim\n".encode("cp1252"), "UTF-8"),
     ],
     ids=["bad_yaml", "not_utf8"],
