@@ -131,7 +131,7 @@ class UrFollowerCore:
         except BaseException as exc:
             # El cliente oficial deja el socket abierto si falla la negociación.
             self._close()
-            log.error("follower: no arrancó t_ns=%d %s", self._clock(), exc)
+            log.error("follower: no arrancó t_ns=%d %r", self._clock(), exc)
             raise
         log.info("follower: conectado y armado t_ns=%d", self._clock())
 
@@ -290,7 +290,7 @@ class UrFollowerCore:
 
     def _stop(self, reason: str) -> FollowerStoppedError:
         """La primera parada es definitiva: desde aquí todas las llamadas lanzan con su motivo."""
-        reason = f"{reason} → {STOP_ACTION}"
+        reason = f"{reason}: {STOP_ACTION}"
         self._stop_reason = reason
         log.error("follower: parado t_ns=%d %s", self._clock(), reason)
         return FollowerStoppedError(reason)

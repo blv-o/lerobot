@@ -128,7 +128,7 @@ class UrLeaderCore:
         return list(self._q_rad)
 
     def _error(self, reason: str) -> LeaderReadError:
-        reason = f"{reason} → {READ_ACTION}"
+        reason = f"{reason}: {READ_ACTION}"
         log.error("leader: t_ns=%d %s", self._clock(), reason)
         return LeaderReadError(reason)
 
