@@ -26,6 +26,9 @@ from ur_core.startup import (
 
 log = logging.getLogger("ur_core.leader")
 
+# Toda causa de un error del leader está en su TP o en la red.
+READ_ACTION = "comprueba el programa de freedrive y el cable del leader"
+
 OUTPUT_NAMES = ["actual_q", "timestamp"]
 OUTPUT_TYPES = ["VECTOR6D", "DOUBLE"]
 
@@ -93,7 +96,7 @@ class UrLeaderCore:
             pkt = receive_packet(con)
         except (OSError, RTDEException) as exc:
             con.disconnect()  # el cliente oficial deja el socket abierto si falla la negociación
-            raise LeaderReadError(f"no se puede leer el leader por RTDE en {ip}: {exc}") from exc
+            raise self._error(f"no se puede leer el leader por RTDE en {ip}: {exc}") from exc
         self._rtde = con
         self._q_rad, self._timestamp_s, self._advanced_ns = list(pkt.actual_q), pkt.timestamp, self._clock()
 
@@ -123,6 +126,7 @@ class UrLeaderCore:
         return list(self._q_rad)
 
     def _error(self, reason: str) -> LeaderReadError:
+        reason = f"{reason} → {READ_ACTION}"
         log.error("leader: t_ns=%d %s", self._clock(), reason)
         return LeaderReadError(reason)
 

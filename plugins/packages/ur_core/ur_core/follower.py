@@ -32,6 +32,8 @@ log = logging.getLogger("ur_core.follower")
 ARM_TIMEOUT_S = 6.0
 # Sin paquete nuevo en este tiempo, la conexión está perdida aunque siga abierta (cable caído).
 STALE_S = 1.0
+# Tras cualquier parada el programa del TP ya no sigue consignas (o terminó): siempre lo mismo.
+STOP_ACTION = "Stop y Play en el TP antes de relanzar"
 
 OUTPUT_NAMES = [
     "actual_q",
@@ -126,9 +128,10 @@ class UrFollowerCore:
         self._enabled, self._stop_reason = False, ""
         try:
             self._arm()
-        except BaseException:
+        except BaseException as exc:
             # El cliente oficial deja el socket abierto si falla la negociación.
             self._close()
+            log.error("follower: no arrancó t_ns=%d %s", self._clock(), exc)
             raise
         log.info("follower: conectado y armado t_ns=%d", self._clock())
 
@@ -288,6 +291,7 @@ class UrFollowerCore:
 
     def _stop(self, reason: str) -> FollowerStoppedError:
         """La primera parada es definitiva: desde aquí todas las llamadas lanzan con su motivo."""
+        reason = f"{reason} → {STOP_ACTION}"
         self._stop_reason = reason
         log.error("follower: parado t_ns=%d %s", self._clock(), reason)
         return FollowerStoppedError(reason)

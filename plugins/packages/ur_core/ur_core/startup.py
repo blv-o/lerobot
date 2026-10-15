@@ -161,7 +161,8 @@ def _setup(call: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
 def _input_setup(con: RtdeConnection, variables: list[str], types: list[str]) -> Any:
     busy = (
         f"registros de entrada {', '.join(variables)} no disponibles "
-        "(¿los usa otro cliente RTDE o un bus de campo?)"
+        "(los usa otro cliente RTDE o un bus de campo): cierra el proceso anterior que siga vivo "
+        "o desactiva el bus de campo en PolyScope"
     )
     try:
         command = _setup(con.send_input_setup, variables, types)
