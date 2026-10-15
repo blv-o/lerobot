@@ -63,7 +63,7 @@ class FollowerStartError(RuntimeError):
 
 
 class FollowerStoppedError(RuntimeError):
-    """El follower ya paró (motivo en el mensaje); hay que dar Play en el TP y relanzar el comando."""
+    """El follower ya paró (motivo en el mensaje); hay que dar Stop y Play en el TP y relanzar el comando."""
 
 
 class _ConnectionLostError(Exception):
@@ -162,6 +162,9 @@ class UrFollowerCore:
         Se reescribe enable=0 con un contador nuevo en cada paquete: así se arma aunque el registro
         ya valiera lo de la primera escritura (otro proceso empezó con el mismo contador), y al volver
         el programa ya está armado, antes de que llegue ningún enable=1.
+
+        Excepción: si un proceso anterior murió con el programa habilitado, su heartbeat ya late y
+        esto vuelve sin prueba de armado; por eso, antes de relanzar, Stop y Play en el TP.
         """
         hb0 = pkt.output_int_register_0
         deadline_ns = self._clock() + round(ARM_TIMEOUT_S * 1e9)
@@ -231,10 +234,8 @@ class UrFollowerCore:
         # Leader y follower pasan cada uno el arranque a ± tolerancia: entre sí, hasta el doble.
         max_error_rad = 2 * self._config.start_tolerance_rad
         if error_rad > max_error_rad:
-            raise self._stop(
-                f"primera consigna lejos de la posición actual "
-                f"({math.degrees(error_rad):.1f}° > {math.degrees(max_error_rad):.1f}°)"
-            )
+            degrees = f"{math.degrees(error_rad):.1f}° > {math.degrees(max_error_rad):.1f}°".replace(".", ",")
+            raise self._stop(f"primera consigna lejos de la posición actual ({degrees})")
 
     def _read_state(self) -> Any:
         """Vacía lo acumulado y comprueba el paquete más nuevo. Tras una parada, lanza siempre."""
@@ -324,7 +325,10 @@ class UrFollowerCore:
             if self._rtde.is_connected():
                 # La receta lleva siempre la consigna: repetir la última no pide ningún movimiento.
                 self._write(None, enable=0)
-                log.info("follower: parada pedida (disconnect) t_ns=%d", self._clock())
+                log.info(
+                    "follower: enable=0 enviado; comprueba en el TP que el programa paró t_ns=%d",
+                    self._clock(),
+                )
         except _ConnectionLostError as exc:
             log.error(
                 "follower: no se pudo escribir enable=0 (Stop en el TP) t_ns=%d: %s", self._clock(), exc

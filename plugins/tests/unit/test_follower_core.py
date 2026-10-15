@@ -269,8 +269,9 @@ def test_no_data_while_arming_is_a_start_error(pkts: list[dict[str, Any] | None]
     ids=["get_joints", "send_joints"],
 )
 def test_relaunch_with_the_program_already_enabled_stops_on_the_first_call(call: Callable[..., Any]) -> None:
-    """Sin Stop y Play tras un PC colgado, el heartbeat late y `connect()` pasa. Si el programa
-    deja de estar en Play tras el armado, la primera llamada lo ve (el fake no simula el script)."""
+    """Sin Stop y Play tras un PC colgado, el heartbeat late y `connect()` pasa. Es una carrera: el
+    programa viejo para con el enable=0 de `connect()` o sigue sin rearmarse. Si para, la primera
+    llamada lo ve (el fake no simula el script)."""
     rig = armed([*packets(ARM_PACKETS), *packets(30, runtime_state=RUNTIME_STOPPED)])
     rig.tick()
     with pytest.raises(FollowerStoppedError, match="runtime_state=1"):
