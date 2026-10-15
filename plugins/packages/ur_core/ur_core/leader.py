@@ -99,6 +99,7 @@ class UrLeaderCore:
             raise self._error(f"no se puede leer el leader por RTDE en {ip}: {exc}") from exc
         self._rtde = con
         self._q_rad, self._timestamp_s, self._advanced_ns = list(pkt.actual_q), pkt.timestamp, self._clock()
+        log.info("leader: conectado t_ns=%d", self._clock())
 
     # --- lectura ------------------------------------------------------------------------
     def read_joints(self) -> list[float]:
@@ -141,6 +142,7 @@ class UrLeaderCore:
             log.exception("leader: fallo al cerrar la conexión RTDE t_ns=%d", self._clock())
         finally:
             self._rtde = None
+            log.info("leader: cerrado t_ns=%d", self._clock())
 
     def _connection(self) -> RtdeConnection:
         if self._rtde is None:

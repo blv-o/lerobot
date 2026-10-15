@@ -235,7 +235,6 @@ def test_low_cost_leader_type_is_rejected() -> None:
         UrLeaderCore(dataclasses.replace(LEADER_CONFIG, leader=low_cost))
 
 
-@pytest.mark.xfail(strict=True, reason="pendiente: log del leader")
 def test_connect_and_disconnect_are_logged_with_t_ns(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.INFO, logger="ur_core.leader"):
         rig = connected()
