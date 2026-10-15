@@ -1,26 +1,25 @@
-# Plantilla de configuración de la teleoperación UR → UR. La leen los dos plugins:
-#   lerobot-teleoperate --robot.type=ur_follower --robot.config_path=plugins/configs/ur_config.yaml \
-#                       --teleop.type=ur_leader  --teleop.config_path=plugins/configs/ur_config.yaml ...
+# Plantilla de configuración de la teleoperación. La leen los dos plugins:
+
 # Todas las claves son obligatorias (no hay valores por defecto ocultos en el código).
 # Cualquier campo de `leader`/`follower` puede escribirse como {sim: valor, real: valor}; se
 # resuelve con el perfil de su lado.
-# Las cámaras no van aquí: llegan por la CLI estándar de LeRobot (--robot.cameras).
 
 profile: sim                     # sim | real | {leader: sim|real, follower: sim|real}
 
 leader:
-  # Un UR (ur3e | ur5e | ur7e | ur10e | ur12e | ur15 | ur16e | ur20 | ur30) o una réplica de
-  # bajo coste con la cinemática del UR (feetech | as5600). Cada tipo lleva sus propias claves.
+  # Un UR (ur3e | ur5e | ur7e | ur10e | ur12e | ur15 | ur16e | ur20 | ur30) o una réplica low-cost
+  # con la cinemática del UR (feetech | as5600). Cada tipo lleva sus propias claves.
   type: ur3e
   timeout_ms: 100                # sin dato nuevo en este tiempo → error de lectura del leader
+  
   # --- solo leader UR ---
-  # sim: plugins/ursim/docker-compose.yml. real: cambiar por la IP del robot.
   ip: {sim: 127.0.0.3, real: 192.168.1.11}
+  
   # --- solo leader feetech | as5600 (en lugar de ip) ---
   # port: COM3                   # puerto serie (Linux: /dev/ttyACM0)
   # hz: 100                      # frecuencia de lectura del bus
   # mapping:
-  #   direction: [normal, normal, normal, normal, normal, normal]   # normal | invertido, base..wrist_3
+  #   direction: [normal, normal, normal, normal, normal, normal]   # normal | invertido ; base..wrist_3
 
 follower:
   type: ur3e                     # solo modelos UR
