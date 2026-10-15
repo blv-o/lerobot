@@ -21,6 +21,9 @@ RTDE_PORT = 30004
 # El robot manda su estado cada 8 ms: leyendo a ese ritmo, la pose que graba LeRobot tiene como
 # mucho 8 ms. Follower y leader leen igual.
 READ_HZ = 125
+# Bytes que el cliente oficial lee de golpe antes de entregar un paquete. Sin límite copia todo
+# su buffer en cada paquete y vaciar crece con el cuadrado de la pausa (5 min sin leer: ~15 s).
+BUFFER_LIMIT = 4096
 
 
 class RtdeConnection(Protocol):
@@ -34,7 +37,7 @@ class RtdeConnection(Protocol):
     def send_start(self) -> bool: ...
     def send(self, input_data: Any) -> Any: ...
     def receive(self) -> Any: ...
-    def receive_buffered(self) -> Any: ...
+    def receive_buffered(self, binary: bool = False, buffer_limit: int | None = None) -> Any: ...
 
 
 def rtde_connection(ip: str) -> RtdeConnection:

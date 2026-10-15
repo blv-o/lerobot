@@ -17,6 +17,7 @@ from rtde.rtde import RTDEException
 from ur_core.clock import now_ns
 from ur_core.config import N_JOINTS, TeleopConfig
 from ur_core.startup import (
+    BUFFER_LIMIT,
     READ_HZ,
     RtdeConnection,
     check_pose,
@@ -258,7 +259,7 @@ class UrFollowerCore:
         newest = None
         fault = ""
         try:
-            while (pkt := rtde.receive_buffered()) is not None:
+            while (pkt := rtde.receive_buffered(buffer_limit=BUFFER_LIMIT)) is not None:
                 newest = pkt
                 fault = fault or self._robot_fault(pkt)
         except (RTDEException, OSError) as exc:

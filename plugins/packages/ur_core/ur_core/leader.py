@@ -14,6 +14,7 @@ from rtde.rtde import RTDEException
 from ur_core.clock import now_ns
 from ur_core.config import UR_TYPES, ConfigError, TeleopConfig, UrLeaderConfig
 from ur_core.startup import (
+    BUFFER_LIMIT,
     READ_HZ,
     RtdeConnection,
     check_pose,
@@ -102,7 +103,7 @@ class UrLeaderCore:
         con = self._connection()
         lost = f"se perdió la conexión RTDE con el leader {self._leader.ip}"
         try:
-            while (pkt := con.receive_buffered()) is not None:
+            while (pkt := con.receive_buffered(buffer_limit=BUFFER_LIMIT)) is not None:
                 # Cuenta el `timestamp` del controlador y no `actual_q`: en freedrive el leader
                 # puede estar quieto.
                 if pkt.timestamp > self._timestamp_s:

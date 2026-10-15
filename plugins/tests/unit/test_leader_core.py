@@ -84,7 +84,6 @@ def test_receive_is_never_called_after_connect(monkeypatch: pytest.MonkeyPatch) 
         rig.leader.read_joints()
 
 
-@pytest.mark.xfail(strict=True, reason="pendiente: vaciado a trozos")
 def test_the_backlog_is_drained_in_bounded_chunks() -> None:
     """P. ej. el leader sin leer mientras se contesta la pregunta del follower: sin límite, el
     cliente oficial copia todo su buffer en cada paquete y el primer tick se congela."""
