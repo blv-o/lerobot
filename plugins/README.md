@@ -31,7 +31,6 @@ follower `http://127.0.0.2:6080/vnc.html`, leader `http://127.0.0.3:6080/vnc.htm
    - No llamarlo `follower_control.urp`: al guardar `X.urp`, PolyScope genera `X.script` y pisa el script.
    - Tras cambiar `follower_control.script`, volver a guardar el `.urp` en el TP: el `.urp` guarda una copia del script.
    - Robot real: copiar `follower_control.script` al robot con un USB (o por red a la carpeta de programas) y crear el `.urp` igual.
-  - Robot real: el programa se da Play desde el TP, en **Local** (no hace falta Remote Control).
 
 Modo del follower (selector de la barra superior):
 - **Local** para teleoperar: en Remote, el Play del TP no funciona.
@@ -42,7 +41,7 @@ Modo del follower (selector de la barra superior):
 Red (robots reales):
 - Red dedicada para el PC y los robots.
 - IP fija del PC en la misma subred que los robots.
-- En PolyScope del follower y del leader: restringir el acceso entrante a esa subred y desactivar los servicios que no se usen.
+- En PolyScope del follower y del leader: restringir el acceso entrante a esa subred y desactivar los servicios que no se usen (dejar RTDE, puerto 30004).
 
 ## 3. Copiar el YAML
 
@@ -99,7 +98,7 @@ Copy-Item plugins\configs\ur_config.yaml mi_ur_config.yaml
 - «el programa del follower no está en ejecución» al empezar: el programa seguía de la sesión anterior → **Stop** y **Play** en el TP.
 - «registros de entrada … no disponibles» → los usa otro cliente RTDE o un bus de campo: cerrar el proceso anterior que siga vivo (p. ej. tras un PC colgado) o desactivar el bus de campo en PolyScope.
 - «primera consigna lejos» → leader y follower no estaban juntos en la posición inicial: llevarlos allí, **Stop** y **Play**, y relanzar.
-- «se perdió la conexión RTDE» → revisar cable y red; **Stop** y **Play** en el TP.
+- «se perdió la conexión» (RTDE) → revisar cable y red; **Stop** y **Play** en el TP.
 - `safety_mode=…` o `robot_mode=…` → mirar el TP, desbloquear la parada, **Stop** y **Play**.
 - Error del leader (también al conectar) → programa de freedrive en Play y cable del leader.
 - «no se puede leer la posición» → comprobar la IP del YAML y que el robot esté encendido.
