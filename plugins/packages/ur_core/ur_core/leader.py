@@ -95,7 +95,8 @@ class UrLeaderCore:
             start_output(con, OUTPUT_NAMES, OUTPUT_TYPES, READ_HZ)
             pkt = receive_packet(con)
         except (OSError, RTDEException) as exc:
-            con.disconnect()  # el cliente oficial deja el socket abierto si falla la negociación
+            # El cliente oficial deja el socket abierto si falla la negociación.
+            self._close(con)
             raise self._error(f"no se puede leer el leader por RTDE en {ip}: {exc}") from exc
         self._rtde = con
         self._q_rad, self._timestamp_s, self._advanced_ns = list(pkt.actual_q), pkt.timestamp, self._clock()
@@ -136,13 +137,18 @@ class UrLeaderCore:
         if self._rtde is None:
             return
         try:
-            self._rtde.disconnect()
-        except OSError:
-            # `sock.close` del cliente oficial puede lanzar: se registra y LeRobot sigue cerrando.
-            log.exception("leader: fallo al cerrar la conexión RTDE t_ns=%d", self._clock())
+            self._close(self._rtde)
         finally:
             self._rtde = None
             log.info("leader: cerrado t_ns=%d", self._clock())
+
+    def _close(self, con: RtdeConnection) -> None:
+        """`sock.close` del cliente oficial puede lanzar: se registra, para no tapar el error de
+        conexión ni impedir que LeRobot siga cerrando."""
+        try:
+            con.disconnect()
+        except OSError:
+            log.exception("leader: fallo al cerrar la conexión RTDE t_ns=%d", self._clock())
 
     def _connection(self) -> RtdeConnection:
         if self._rtde is None:
